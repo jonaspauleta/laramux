@@ -3,6 +3,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState},
 };
 
+use super::theme::Theme;
 use crate::app::App;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
@@ -26,13 +27,13 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             let content = format!("{} {} {}", indicator, display_name, hotkey);
 
             let style = match status_text {
-                crate::process::types::ProcessStatus::Running => Style::default().fg(Color::Green),
-                crate::process::types::ProcessStatus::Failed => Style::default().fg(Color::Red),
+                crate::process::types::ProcessStatus::Running => Style::default().fg(Theme::SUCCESS),
+                crate::process::types::ProcessStatus::Failed => Style::default().fg(Theme::ERROR),
                 crate::process::types::ProcessStatus::Restarting => {
-                    Style::default().fg(Color::Yellow)
+                    Style::default().fg(Theme::WARNING)
                 }
                 crate::process::types::ProcessStatus::Stopped => {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(Theme::TEXT_MUTED)
                 }
             };
 
@@ -44,15 +45,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .block(
             Block::default()
                 .title(" Processes ")
+                .title_style(Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(Style::default().fg(Theme::BORDER)),
         )
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .bg(Theme::SELECTION_BG)
+                .fg(Theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("▶ ");
+        .highlight_symbol("› ");
 
     let mut state = ListState::default();
     state.select(Some(app.selected_index));

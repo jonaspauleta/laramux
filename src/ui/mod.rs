@@ -3,6 +3,7 @@ mod logstream;
 mod output;
 mod sidebar;
 mod statusbar;
+mod theme;
 
 pub use layout::AppLayout;
 

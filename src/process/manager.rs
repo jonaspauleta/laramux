@@ -49,7 +49,11 @@ impl ProcessManager {
             .current_dir(&config.working_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            // Force color output even when not connected to a TTY
+            .env("FORCE_COLOR", "1")
+            .env("CLICOLOR_FORCE", "1")
+            .env("COLORTERM", "truecolor");
 
         let mut child = cmd.spawn().map_err(|e| LaraMuxError::SpawnFailed {
             name: id.to_string(),

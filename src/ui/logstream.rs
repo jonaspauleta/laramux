@@ -3,6 +3,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use super::theme::Theme;
 use crate::app::{App, LogLevel};
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
@@ -12,13 +13,13 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .map(|log_line| {
             let style = match log_line.level {
                 LogLevel::Emergency | LogLevel::Alert | LogLevel::Critical | LogLevel::Error => {
-                    Style::default().fg(Color::Red)
+                    Style::default().fg(Theme::ERROR)
                 }
-                LogLevel::Warning => Style::default().fg(Color::Yellow),
-                LogLevel::Notice => Style::default().fg(Color::Cyan),
-                LogLevel::Info => Style::default().fg(Color::Green),
-                LogLevel::Debug => Style::default().fg(Color::DarkGray),
-                LogLevel::Unknown => Style::default(),
+                LogLevel::Warning => Style::default().fg(Theme::WARNING),
+                LogLevel::Notice => Style::default().fg(Theme::INFO),
+                LogLevel::Info => Style::default().fg(Theme::SUCCESS),
+                LogLevel::Debug => Style::default().fg(Theme::TEXT_MUTED),
+                LogLevel::Unknown => Style::default().fg(Theme::TEXT_DIM),
             };
             Line::styled(&log_line.content, style)
         })
@@ -43,8 +44,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .block(
             Block::default()
                 .title(title)
+                .title_style(Style::default().fg(Theme::ACCENT_DIM))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Magenta)),
+                .border_style(Style::default().fg(Theme::BORDER)),
         )
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));

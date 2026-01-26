@@ -1,8 +1,10 @@
+use ansi_to_tui::IntoText;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use super::theme::Theme;
 use crate::app::App;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
@@ -14,15 +16,22 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             let lines: Vec<Line> = process
                 .output
                 .iter()
-                .map(|line| {
-                    let style = if line.is_error {
-                        Style::default().fg(Color::Red)
-                    } else if line.is_stderr {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default()
-                    };
-                    Line::styled(&line.content, style)
+                .flat_map(|line| {
+                    // Parse ANSI codes, fall back to plain text on error
+                    match line.content.as_bytes().into_text() {
+                        Ok(text) => text.lines,
+                        Err(_) => {
+                            // Fallback: apply basic styling based on stderr/error
+                            let style = if line.is_error {
+                                Style::default().fg(Theme::ERROR)
+                            } else if line.is_stderr {
+                                Style::default().fg(Theme::WARNING)
+                            } else {
+                                Style::default().fg(Theme::TEXT)
+                            };
+                            vec![Line::styled(line.content.clone(), style)]
+                        }
+                    }
                 })
                 .collect();
 
@@ -53,8 +62,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .block(
             Block::default()
                 .title(title)
+                .title_style(Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)),
+                .border_style(Style::default().fg(Theme::BORDER_FOCUSED)),
         )
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
