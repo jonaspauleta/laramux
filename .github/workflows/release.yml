@@ -168,12 +168,10 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - name: Update Homebrew Tap
-        uses: mislav/bump-homebrew-formula-action@v3
-        with:
-          formula-name: laramux
-          homebrew-tap: jonaspauleta/homebrew-tap
-          download-url: https://github.com/jonaspauleta/laramux/releases/download/${{ github.ref_name }}/laramux-linux-x86_64
-        env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        continue-on-error: true
+      - name: Trigger Homebrew Tap Update
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.HOMEBREW_TAP_TOKEN }}" \
+            https://api.github.com/repos/jonaspauleta/homebrew-tap/dispatches \
+            -d '{"event_type":"update-formula","client_payload":{"version":"${{ github.ref_name }}"}}'
