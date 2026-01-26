@@ -145,9 +145,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                                     process::ProcessKind::Queue,
                                     ProcessStatus::Restarting,
                                 );
-                                let _ = process_manager
-                                    .restart(process::ProcessKind::Queue)
-                                    .await;
+                                let _ = process_manager.restart(process::ProcessKind::Queue).await;
                                 app.set_process_status(
                                     process::ProcessKind::Queue,
                                     ProcessStatus::Running,
@@ -161,8 +159,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                                     process::ProcessKind::Vite,
                                     ProcessStatus::Restarting,
                                 );
-                                let _ =
-                                    process_manager.restart(process::ProcessKind::Vite).await;
+                                let _ = process_manager.restart(process::ProcessKind::Vite).await;
                                 app.set_process_status(
                                     process::ProcessKind::Vite,
                                     ProcessStatus::Running,
@@ -176,9 +173,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                                     process::ProcessKind::Serve,
                                     ProcessStatus::Restarting,
                                 );
-                                let _ = process_manager
-                                    .restart(process::ProcessKind::Serve)
-                                    .await;
+                                let _ = process_manager.restart(process::ProcessKind::Serve).await;
                                 app.set_process_status(
                                     process::ProcessKind::Serve,
                                     ProcessStatus::Running,
@@ -192,9 +187,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                                     process::ProcessKind::Reverb,
                                     ProcessStatus::Restarting,
                                 );
-                                let _ = process_manager
-                                    .restart(process::ProcessKind::Reverb)
-                                    .await;
+                                let _ = process_manager.restart(process::ProcessKind::Reverb).await;
                                 app.set_process_status(
                                     process::ProcessKind::Reverb,
                                     ProcessStatus::Running,
@@ -260,10 +253,11 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                             .unwrap_or(ProcessStatus::Stopped);
 
                         // Only update if not in transitional state
-                        if !matches!(current_status, ProcessStatus::Restarting) {
-                            if is_running && current_status != ProcessStatus::Running {
-                                app.set_process_status(kind, ProcessStatus::Running);
-                            }
+                        if !matches!(current_status, ProcessStatus::Restarting)
+                            && is_running
+                            && current_status != ProcessStatus::Running
+                        {
+                            app.set_process_status(kind, ProcessStatus::Running);
                         }
                     }
                 }

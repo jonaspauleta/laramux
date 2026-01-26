@@ -16,7 +16,10 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 None => ("⚫", crate::process::types::ProcessStatus::Stopped),
             };
 
-            let hotkey = kind.hotkey().map(|k| format!("[{}]", k)).unwrap_or_default();
+            let hotkey = kind
+                .hotkey()
+                .map(|k| format!("[{}]", k))
+                .unwrap_or_default();
 
             let content = format!("{} {} {}", indicator, kind.display_name(), hotkey);
 
@@ -26,7 +29,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 crate::process::types::ProcessStatus::Restarting => {
                     Style::default().fg(Color::Yellow)
                 }
-                crate::process::types::ProcessStatus::Stopped => Style::default().fg(Color::DarkGray),
+                crate::process::types::ProcessStatus::Stopped => {
+                    Style::default().fg(Color::DarkGray)
+                }
             };
 
             ListItem::new(content).style(style)

@@ -165,7 +165,10 @@ impl App {
     pub fn add_log_lines(&mut self, lines: Vec<String>) {
         for line in lines {
             let level = Self::parse_log_level(&line);
-            let log_line = LogLine { content: line, level };
+            let log_line = LogLine {
+                content: line,
+                level,
+            };
 
             if self.log_lines.len() >= MAX_LOG_LINES {
                 self.log_lines.pop_front();

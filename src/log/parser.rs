@@ -12,8 +12,7 @@ pub fn is_stack_trace_line(line: &str) -> bool {
             .map(|c| c.is_ascii_digit())
             .unwrap_or(false)
         || trimmed.starts_with("Stack trace:")
-        || trimmed.contains(" at ")
-            && (trimmed.contains(".php:") || trimmed.contains("vendor/"))
+        || trimmed.contains(" at ") && (trimmed.contains(".php:") || trimmed.contains("vendor/"))
         || trimmed.starts_with("in ") && trimmed.contains(".php")
         || trimmed.starts_with("at ") && trimmed.contains("::")
 }
@@ -67,7 +66,9 @@ mod tests {
 
     #[test]
     fn test_is_stack_trace_line() {
-        assert!(is_stack_trace_line("#0 /var/www/app/Http/Controller.php(45)"));
+        assert!(is_stack_trace_line(
+            "#0 /var/www/app/Http/Controller.php(45)"
+        ));
         assert!(is_stack_trace_line("Stack trace:"));
         assert!(!is_stack_trace_line("Normal log message"));
     }

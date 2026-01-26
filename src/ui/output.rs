@@ -39,10 +39,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let total_lines = lines.len();
 
     // Get scroll offset from selected process
-    let scroll_offset = app
-        .selected_process()
-        .map(|p| p.scroll_offset)
-        .unwrap_or(0);
+    let scroll_offset = app.selected_process().map(|p| p.scroll_offset).unwrap_or(0);
 
     // Calculate scroll position (scroll from bottom by default)
     let scroll = if scroll_offset == 0 {

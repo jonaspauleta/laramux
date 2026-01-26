@@ -53,9 +53,7 @@ impl LogWatcher {
 
         // Track file position for incremental reading
         let mut last_pos = if log_path.exists() {
-            std::fs::metadata(&log_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
+            std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0)
         } else {
             0
         };

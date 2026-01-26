@@ -33,53 +33,107 @@ A terminal UI application for managing Laravel development processes in a single
 
 ## Installation
 
-Requires Rust 1.70 or later.
+### Download Pre-built Binary (Easiest)
 
-### Option 1: Run with `--manifest-path`
+Download the latest release for your platform from [GitHub Releases](https://github.com/jonaspauleta/laramux/releases).
+
+<details>
+<summary><strong>macOS (Apple Silicon - M1/M2/M3)</strong></summary>
 
 ```bash
-cd /path/to/laravel-project
-cargo run --manifest-path /path/to/laramux/Cargo.toml
+# Download the binary
+curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-macos-aarch64 -o laramux
+
+# Make it executable
+chmod +x laramux
+
+# Move to your PATH (requires password)
+sudo mv laramux /usr/local/bin/
+
+# Verify installation
+laramux --help
 ```
+</details>
 
-### Option 2: Build and install the binary (Recommended)
+<details>
+<summary><strong>macOS (Intel)</strong></summary>
 
 ```bash
-cd /path/to/laramux
+# Download the binary
+curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-macos-x86_64 -o laramux
+
+# Make it executable
+chmod +x laramux
+
+# Move to your PATH (requires password)
+sudo mv laramux /usr/local/bin/
+
+# Verify installation
+laramux --help
+```
+</details>
+
+<details>
+<summary><strong>Linux (x86_64)</strong></summary>
+
+```bash
+# Download the binary
+curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-linux-x86_64 -o laramux
+
+# Make it executable
+chmod +x laramux
+
+# Move to your PATH (requires password)
+sudo mv laramux /usr/local/bin/
+
+# Verify installation
+laramux --help
+```
+</details>
+
+<details>
+<summary><strong>Linux (ARM64)</strong></summary>
+
+```bash
+# Download the binary
+curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-linux-aarch64 -o laramux
+
+# Make it executable
+chmod +x laramux
+
+# Move to your PATH (requires password)
+sudo mv laramux /usr/local/bin/
+
+# Verify installation
+laramux --help
+```
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+1. Download [laramux-windows-x86_64.exe](https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-windows-x86_64.exe)
+2. Rename it to `laramux.exe`
+3. Move it to a folder in your PATH (e.g., `C:\Users\YourName\bin`)
+4. Or run it directly from the download location
+
+</details>
+
+### Build from Source
+
+Requires [Rust](https://rustup.rs/) 1.70 or later.
+
+```bash
+# Clone the repository
+git clone https://github.com/jonaspauleta/laramux.git
+cd laramux
+
+# Install globally
 cargo install --path .
 
-# Then run from any Laravel project:
-cd /path/to/laravel-project
-laramux
+# Verify installation
+laramux --help
 ```
-
-### Option 3: Build release and copy binary
-
-```bash
-cd /path/to/laramux
-cargo build --release
-# Binary is at: target/release/laramux
-
-# Copy to a directory in your PATH:
-cp target/release/laramux /usr/local/bin/
-
-# Then run from any Laravel project:
-cd /path/to/laravel-project
-laramux
-```
-
-### Option 4: Create an alias
-
-```bash
-# Add to ~/.zshrc or ~/.bashrc:
-alias laramux='cargo run --manifest-path /path/to/laramux/Cargo.toml'
-
-# Then:
-cd /path/to/laravel-project
-laramux
-```
-
-> **Note:** Option 2 (`cargo install --path .`) is the cleanest approach for regular use.
 
 ## Usage
 

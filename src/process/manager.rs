@@ -114,7 +114,6 @@ impl ProcessManager {
             });
         }
 
-
         self.children.insert(kind, child);
 
         // Send initial status via event
@@ -159,10 +158,7 @@ impl ProcessManager {
             }
 
             // Wait for process to exit with timeout
-            let timeout = tokio::time::timeout(
-                tokio::time::Duration::from_secs(5),
-                child.wait(),
-            );
+            let timeout = tokio::time::timeout(tokio::time::Duration::from_secs(5), child.wait());
 
             match timeout.await {
                 Ok(Ok(status)) => {

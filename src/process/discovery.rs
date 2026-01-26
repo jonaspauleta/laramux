@@ -56,12 +56,11 @@ pub fn discover_services(working_dir: &Path) -> Result<Vec<ProcessConfig>> {
 
     // Check for queue worker capability (always available in Laravel)
     configs.push(
-        ProcessConfig::new(ProcessKind::Queue, "php", working_dir.to_path_buf())
-            .with_args(vec![
-                "artisan".to_string(),
-                "queue:work".to_string(),
-                "--tries=3".to_string(),
-            ]),
+        ProcessConfig::new(ProcessKind::Queue, "php", working_dir.to_path_buf()).with_args(vec![
+            "artisan".to_string(),
+            "queue:work".to_string(),
+            "--tries=3".to_string(),
+        ]),
     );
 
     // Check for Reverb (Laravel Reverb websocket server)
