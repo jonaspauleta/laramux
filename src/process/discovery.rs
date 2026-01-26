@@ -5,6 +5,33 @@ use serde::Deserialize;
 use crate::error::{LaraMuxError, Result};
 use crate::process::types::{ProcessConfig, ProcessKind};
 
+/// Check if Laravel Herd is installed on macOS
+fn is_herd_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // Check for Herd application
+        let herd_app = Path::new("/Applications/Herd.app");
+        if herd_app.exists() {
+            return true;
+        }
+
+        // Check for Herd config directory
+        if let Some(home) = std::env::var_os("HOME") {
+            let herd_config = Path::new(&home).join("Library/Application Support/Herd");
+            if herd_config.exists() {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ComposerJson {
     require: Option<std::collections::HashMap<String, String>>,
@@ -48,11 +75,13 @@ pub fn discover_services(working_dir: &Path) -> Result<Vec<ProcessConfig>> {
         ));
     }
 
-    // Always add artisan serve
-    configs.push(
-        ProcessConfig::new(ProcessKind::Serve, "php", working_dir.to_path_buf())
-            .with_args(vec!["artisan".to_string(), "serve".to_string()]),
-    );
+    // Add artisan serve (unless Laravel Herd is handling it)
+    if !is_herd_installed() {
+        configs.push(
+            ProcessConfig::new(ProcessKind::Serve, "php", working_dir.to_path_buf())
+                .with_args(vec!["artisan".to_string(), "serve".to_string()]),
+        );
+    }
 
     // Check for queue worker capability (always available in Laravel)
     configs.push(
