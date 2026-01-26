@@ -64,14 +64,6 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Rename binary (Unix)
-        if: runner.os != 'Windows'
-        run: mv target/${{ matrix.target }}/release/laramux ${{ matrix.name }}
-
-      - name: Rename binary (Windows)
-        if: runner.os == 'Windows'
-        run: mv target/${{ matrix.target }}/release/laramux.exe ${{ matrix.name }}
-
       - name: Build .deb package
         if: matrix.deb == true && matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
@@ -95,6 +87,14 @@ jobs:
         run: |
           cargo generate-rpm --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/generate-rpm/*.rpm laramux_aarch64.rpm
+
+      - name: Copy binary (Unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/laramux ${{ matrix.name }}
+
+      - name: Copy binary (Windows)
+        if: runner.os == 'Windows'
+        run: cp target/${{ matrix.target }}/release/laramux.exe ${{ matrix.name }}
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
