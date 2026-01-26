@@ -7,6 +7,29 @@ A terminal UI application for managing Laravel development processes in a single
 
 ![LaraMux Preview](public/preview.gif)
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Homebrew](#homebrew-macos--linux)
+  - [apt (Debian/Ubuntu)](#apt-debianubuntu)
+  - [dnf (Fedora/RHEL)](#dnf-fedorarhel)
+  - [Download Binary](#download-binary)
+  - [Build from Source](#build-from-source)
+- [Usage](#usage)
+  - [Requirements](#requirements)
+  - [Keyboard Controls](#keyboard-controls)
+- [Detected Services](#detected-services)
+- [Configuration](#configuration)
+  - [Disable Built-in Processes](#disable-built-in-processes)
+  - [Override Process Commands](#override-process-commands)
+  - [Add Custom Processes](#add-custom-processes)
+  - [Complete Example](#complete-example)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
+- [Contributing](#contributing)
+
 ## Features
 
 - **Unified Process Management** - Run `artisan serve`, Vite, queue workers, and Reverb in one terminal
@@ -14,6 +37,7 @@ A terminal UI application for managing Laravel development processes in a single
 - **Real-time Log Viewing** - Watch `storage/logs/laravel.log` updates in real-time
 - **Smart Package Manager Detection** - Detects npm, yarn, pnpm, or bun for running Vite
 - **Hotkey Controls** - Quickly restart individual processes or all at once
+- **Custom Processes** - Add your own processes via [configuration](#configuration)
 - **Graceful Shutdown** - Properly terminates all child processes on exit
 
 ## Installation
@@ -108,7 +132,7 @@ LaraMux expects to be run from a Laravel project root containing:
 | `Page Up` / `Page Down` | Scroll output |
 | `Ctrl+C` | Quit and stop all processes |
 
-Custom processes can define their own hotkeys (see Configuration below).
+Custom processes can define their own hotkeys (see [Configuration](#configuration)).
 
 ## Detected Services
 
