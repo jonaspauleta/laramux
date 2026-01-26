@@ -83,14 +83,35 @@ pub fn discover_services(working_dir: &Path) -> Result<Vec<ProcessConfig>> {
         );
     }
 
-    // Check for queue worker capability (always available in Laravel)
-    configs.push(
-        ProcessConfig::new(ProcessKind::Queue, "php", working_dir.to_path_buf()).with_args(vec![
-            "artisan".to_string(),
-            "queue:work".to_string(),
-            "--tries=3".to_string(),
-        ]),
-    );
+    // Check for Laravel Horizon (advanced queue dashboard)
+    let has_horizon = composer
+        .require
+        .as_ref()
+        .map(|r| r.contains_key("laravel/horizon"))
+        .unwrap_or(false)
+        || composer
+            .require_dev
+            .as_ref()
+            .map(|r| r.contains_key("laravel/horizon"))
+            .unwrap_or(false);
+
+    // Use Horizon if installed, otherwise fall back to basic queue:work
+    if has_horizon {
+        configs.push(
+            ProcessConfig::new(ProcessKind::Horizon, "php", working_dir.to_path_buf())
+                .with_args(vec!["artisan".to_string(), "horizon".to_string()]),
+        );
+    } else {
+        configs.push(
+            ProcessConfig::new(ProcessKind::Queue, "php", working_dir.to_path_buf()).with_args(
+                vec![
+                    "artisan".to_string(),
+                    "queue:work".to_string(),
+                    "--tries=3".to_string(),
+                ],
+            ),
+        );
+    }
 
     // Check for Reverb (Laravel Reverb websocket server)
     let has_reverb = composer

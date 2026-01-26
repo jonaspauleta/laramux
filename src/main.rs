@@ -194,6 +194,20 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                                 );
                                 app.clear_status();
                             }
+                            KeyCode::Char('h') => {
+                                // Restart Horizon
+                                app.set_status("Restarting Horizon...");
+                                app.set_process_status(
+                                    process::ProcessKind::Horizon,
+                                    ProcessStatus::Restarting,
+                                );
+                                let _ = process_manager.restart(process::ProcessKind::Horizon).await;
+                                app.set_process_status(
+                                    process::ProcessKind::Horizon,
+                                    ProcessStatus::Running,
+                                );
+                                app.clear_status();
+                            }
                             KeyCode::Char('r') => {
                                 // Restart all
                                 app.set_status("Restarting all processes...");

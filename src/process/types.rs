@@ -9,6 +9,7 @@ pub enum ProcessKind {
     Serve,
     Vite,
     Queue,
+    Horizon,
     Reverb,
 }
 
@@ -18,6 +19,7 @@ impl ProcessKind {
             ProcessKind::Serve => "Serve",
             ProcessKind::Vite => "Vite",
             ProcessKind::Queue => "Queue",
+            ProcessKind::Horizon => "Horizon",
             ProcessKind::Reverb => "Reverb",
         }
     }
@@ -27,6 +29,7 @@ impl ProcessKind {
             ProcessKind::Serve => Some('s'),
             ProcessKind::Vite => Some('v'),
             ProcessKind::Queue => Some('q'),
+            ProcessKind::Horizon => Some('h'),
             ProcessKind::Reverb => Some('b'),
         }
     }
@@ -36,6 +39,7 @@ impl ProcessKind {
             ProcessKind::Serve,
             ProcessKind::Vite,
             ProcessKind::Queue,
+            ProcessKind::Horizon,
             ProcessKind::Reverb,
         ]
     }
