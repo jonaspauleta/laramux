@@ -23,3 +23,19 @@ futures = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }
+
+[package.metadata.deb]
+maintainer = "João Paulo Santos"
+copyright = "2024, João Paulo Santos"
+extended-description = """LaraMux is a terminal UI application that manages Laravel development processes
+(artisan serve, Vite, queue workers, Reverb) in a single terminal window with real-time log viewing."""
+section = "devel"
+priority = "optional"
+assets = [
+    ["target/release/laramux", "usr/bin/", "755"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/laramux", dest = "/usr/bin/laramux", mode = "755" },
+]

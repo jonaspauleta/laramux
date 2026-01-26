@@ -33,106 +33,64 @@ A terminal UI application for managing Laravel development processes in a single
 
 ## Installation
 
-### Download Pre-built Binary (Easiest)
-
-Download the latest release for your platform from [GitHub Releases](https://github.com/jonaspauleta/laramux/releases).
-
-<details>
-<summary><strong>macOS (Apple Silicon - M1/M2/M3)</strong></summary>
+### Homebrew (macOS & Linux)
 
 ```bash
-# Download the binary
+brew tap jonaspauleta/tap
+brew install laramux
+```
+
+### apt (Debian/Ubuntu)
+
+```bash
+# Download the .deb package
+curl -LO https://github.com/jonaspauleta/laramux/releases/latest/download/laramux_amd64.deb
+
+# Install
+sudo dpkg -i laramux_amd64.deb
+```
+
+For ARM64 systems, use `laramux_arm64.deb` instead.
+
+### dnf (Fedora/RHEL)
+
+```bash
+# Download the .rpm package
+curl -LO https://github.com/jonaspauleta/laramux/releases/latest/download/laramux_x86_64.rpm
+
+# Install
+sudo dnf install ./laramux_x86_64.rpm
+```
+
+For ARM64 systems, use `laramux_aarch64.rpm` instead.
+
+### Download Binary
+
+Download pre-built binaries from [GitHub Releases](https://github.com/jonaspauleta/laramux/releases):
+
+| Platform | Binary |
+|----------|--------|
+| macOS (Apple Silicon) | `laramux-macos-aarch64` |
+| macOS (Intel) | `laramux-macos-x86_64` |
+| Linux (x86_64) | `laramux-linux-x86_64` |
+| Linux (ARM64) | `laramux-linux-aarch64` |
+| Windows | `laramux-windows-x86_64.exe` |
+
+```bash
+# Example: macOS Apple Silicon
 curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-macos-aarch64 -o laramux
-
-# Make it executable
 chmod +x laramux
-
-# Move to your PATH (requires password)
 sudo mv laramux /usr/local/bin/
-
-# Verify installation
-laramux --help
 ```
-</details>
-
-<details>
-<summary><strong>macOS (Intel)</strong></summary>
-
-```bash
-# Download the binary
-curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-macos-x86_64 -o laramux
-
-# Make it executable
-chmod +x laramux
-
-# Move to your PATH (requires password)
-sudo mv laramux /usr/local/bin/
-
-# Verify installation
-laramux --help
-```
-</details>
-
-<details>
-<summary><strong>Linux (x86_64)</strong></summary>
-
-```bash
-# Download the binary
-curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-linux-x86_64 -o laramux
-
-# Make it executable
-chmod +x laramux
-
-# Move to your PATH (requires password)
-sudo mv laramux /usr/local/bin/
-
-# Verify installation
-laramux --help
-```
-</details>
-
-<details>
-<summary><strong>Linux (ARM64)</strong></summary>
-
-```bash
-# Download the binary
-curl -L https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-linux-aarch64 -o laramux
-
-# Make it executable
-chmod +x laramux
-
-# Move to your PATH (requires password)
-sudo mv laramux /usr/local/bin/
-
-# Verify installation
-laramux --help
-```
-</details>
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-1. Download [laramux-windows-x86_64.exe](https://github.com/jonaspauleta/laramux/releases/latest/download/laramux-windows-x86_64.exe)
-2. Rename it to `laramux.exe`
-3. Move it to a folder in your PATH (e.g., `C:\Users\YourName\bin`)
-4. Or run it directly from the download location
-
-</details>
 
 ### Build from Source
 
 Requires [Rust](https://rustup.rs/) 1.70 or later.
 
 ```bash
-# Clone the repository
 git clone https://github.com/jonaspauleta/laramux.git
 cd laramux
-
-# Install globally
 cargo install --path .
-
-# Verify installation
-laramux --help
 ```
 
 ## Usage
@@ -170,10 +128,12 @@ LaraMux automatically detects and manages:
 
 | Service | Detection | Command |
 |---------|-----------|---------|
-| **Serve** | Always (Laravel project) | `php artisan serve` |
+| **Serve** | Always (unless Laravel Herd detected) | `php artisan serve` |
 | **Queue** | Always (Laravel project) | `php artisan queue:work --tries=3` |
 | **Vite** | `vite` in package.json | `npm/yarn/pnpm/bun run dev` |
 | **Reverb** | `laravel/reverb` in composer.json | `php artisan reverb:start` |
+
+> **Note:** If [Laravel Herd](https://herd.laravel.com) is installed on macOS, LaraMux will skip `artisan serve` since Herd handles serving automatically.
 
 ## Configuration
 

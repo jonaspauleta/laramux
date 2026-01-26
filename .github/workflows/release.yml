@@ -19,9 +19,13 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: laramux-linux-x86_64
+            deb: true
+            rpm: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             name: laramux-linux-aarch64
+            deb: true
+            rpm: true
           - target: x86_64-apple-darwin
             os: macos-latest
             name: laramux-macos-x86_64
@@ -47,6 +51,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      - name: Install cargo-deb
+        if: matrix.deb == true
+        run: cargo install cargo-deb
+
+      - name: Install cargo-generate-rpm
+        if: matrix.rpm == true
+        run: cargo install cargo-generate-rpm
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         env:
@@ -60,11 +72,49 @@ jobs:
         if: runner.os == 'Windows'
         run: mv target/${{ matrix.target }}/release/laramux.exe ${{ matrix.name }}
 
-      - name: Upload artifact
+      - name: Build .deb package
+        if: matrix.deb == true && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cargo deb --target ${{ matrix.target }} --no-build
+          cp target/${{ matrix.target }}/debian/*.deb laramux_amd64.deb
+
+      - name: Build .deb package (aarch64)
+        if: matrix.deb == true && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          cargo deb --target ${{ matrix.target }} --no-build
+          cp target/${{ matrix.target }}/debian/*.deb laramux_arm64.deb
+
+      - name: Build .rpm package
+        if: matrix.rpm == true && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cargo generate-rpm --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/generate-rpm/*.rpm laramux_x86_64.rpm
+
+      - name: Build .rpm package (aarch64)
+        if: matrix.rpm == true && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          cargo generate-rpm --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/generate-rpm/*.rpm laramux_aarch64.rpm
+
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}
+
+      - name: Upload .deb artifact
+        if: matrix.deb == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.target }}
+          path: "*.deb"
+
+      - name: Upload .rpm artifact
+        if: matrix.rpm == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.target }}
+          path: "*.rpm"
 
   release:
     name: Create Release
@@ -85,10 +135,25 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          for dir in artifacts/*/; do
+          # Copy binaries
+          for dir in artifacts/laramux-*/; do
             cp "$dir"* release/
           done
+          # Copy .deb packages
+          for dir in artifacts/deb-*/; do
+            cp "$dir"*.deb release/ 2>/dev/null || true
+          done
+          # Copy .rpm packages
+          for dir in artifacts/rpm-*/; do
+            cp "$dir"*.rpm release/ 2>/dev/null || true
+          done
           ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -97,3 +162,18 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew Tap
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: laramux
+          homebrew-tap: jonaspauleta/homebrew-tap
+          download-url: https://github.com/jonaspauleta/laramux/releases/download/${{ github.ref_name }}/laramux-linux-x86_64
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        continue-on-error: true
