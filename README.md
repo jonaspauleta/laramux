@@ -5,6 +5,8 @@ A terminal UI application for managing Laravel development processes in a single
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+![LaraMux Preview](public/preview.gif)
+
 ## Features
 
 - **Unified Process Management** - Run `artisan serve`, Vite, queue workers, and Reverb in one terminal
@@ -13,23 +15,6 @@ A terminal UI application for managing Laravel development processes in a single
 - **Smart Package Manager Detection** - Detects npm, yarn, pnpm, or bun for running Vite
 - **Hotkey Controls** - Quickly restart individual processes or all at once
 - **Graceful Shutdown** - Properly terminates all child processes on exit
-
-## Screenshot
-
-```
-┌─ Processes ─────┐┌─ Serve Output 🟢 ─────────────────────────────────┐
-│▶ 🟢 Serve   [s] ││ Started Serve (PID: 12345)                       │
-│  🟢 Vite    [v] ││ INFO  Server running on [http://127.0.0.1:8000]  │
-│  🟢 Queue   [q] ││                                                   │
-│  ⚫ Reverb  [b] ││                                                   │
-│                 ││                                                   │
-└─────────────────┘└───────────────────────────────────────────────────┘
-                   ┌─ Laravel Log (42 lines) ──────────────────────────┐
-                   │ [2024-01-15 10:30:45] local.INFO: User logged in  │
-                   │ [2024-01-15 10:30:46] local.DEBUG: Query executed │
-                   └───────────────────────────────────────────────────┘
-↑↓:Navigate  q:Queue  v:Vite  s:Serve  b:Reverb  r:Restart All  c:Clear  Ctrl+C:Quit
-```
 
 ## Installation
 
