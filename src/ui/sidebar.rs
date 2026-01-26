@@ -1,21 +1,21 @@
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{List, ListItem, ListState, Padding},
 };
 
-use super::theme::Theme;
+use super::theme::{symbols, Theme};
 use crate::app::App;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = app
         .process_order
         .iter()
-        .map(|id| {
+        .enumerate()
+        .map(|(idx, id)| {
             let process = app.processes.get(id);
-            let (indicator, status_text) = match process {
-                Some(p) => (p.status.indicator(), p.status),
-                None => ("⚫", crate::process::types::ProcessStatus::Stopped),
-            };
+            let status = process
+                .map(|p| p.status)
+                .unwrap_or(crate::process::types::ProcessStatus::Stopped);
 
             let display_name = app.registry.display_name(id);
             let hotkey = app
@@ -24,38 +24,62 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 .map(|k| format!("[{}]", k))
                 .unwrap_or_default();
 
-            let content = format!("{} {} {}", indicator, display_name, hotkey);
+            let is_selected = idx == app.selected_index;
 
-            let style = match status_text {
-                crate::process::types::ProcessStatus::Running => Style::default().fg(Theme::SUCCESS),
-                crate::process::types::ProcessStatus::Failed => Style::default().fg(Theme::ERROR),
-                crate::process::types::ProcessStatus::Restarting => {
-                    Style::default().fg(Theme::WARNING)
-                }
-                crate::process::types::ProcessStatus::Stopped => {
-                    Style::default().fg(Theme::TEXT_MUTED)
-                }
-            };
+            // Build the line with proper styling
+            let mut spans = Vec::new();
 
-            ListItem::new(content).style(style)
+            // Selection indicator
+            if is_selected {
+                spans.push(Span::styled(
+                    format!("{} ", symbols::SELECTOR),
+                    Style::default().fg(Theme::ACCENT),
+                ));
+            } else {
+                spans.push(Span::raw("  "));
+            }
+
+            // Status symbol
+            spans.push(Span::styled(
+                format!("{} ", Theme::status_symbol(status)),
+                Theme::status_style(status),
+            ));
+
+            // Process name
+            spans.push(Span::styled(
+                display_name,
+                if is_selected {
+                    Style::default()
+                        .fg(Theme::TEXT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Theme::TEXT_DIM)
+                },
+            ));
+
+            // Hotkey
+            spans.push(Span::styled(
+                format!(" {}", hotkey),
+                Style::default().fg(Theme::TEXT_MUTED),
+            ));
+
+            // Status label for non-stopped states
+            if let Some(label) = Theme::status_label(status) {
+                spans.push(Span::styled(
+                    format!(" {}", label),
+                    Theme::status_style(status).add_modifier(Modifier::ITALIC),
+                ));
+            }
+
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
+    let block = Theme::default_block(" Processes ").padding(Padding::horizontal(1));
+
     let list = List::new(items)
-        .block(
-            Block::default()
-                .title(" Processes ")
-                .title_style(Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Theme::BORDER)),
-        )
-        .highlight_style(
-            Style::default()
-                .bg(Theme::SELECTION_BG)
-                .fg(Theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("› ");
+        .block(block)
+        .highlight_style(Style::default().bg(Theme::SELECTION_BG));
 
     let mut state = ListState::default();
     state.select(Some(app.selected_index));

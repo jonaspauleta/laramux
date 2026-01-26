@@ -1,17 +1,18 @@
 use ansi_to_tui::IntoText;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 
 use super::theme::Theme;
 use crate::app::App;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-    let (title, lines) = match app.selected_process() {
+    let (title, lines, scroll_state) = match app.selected_process() {
         Some(process) => {
             let display_name = app.registry.display_name(&process.id);
-            let title = format!(" {} Output {} ", display_name, process.status.indicator());
+            let status_symbol = Theme::status_symbol(process.status);
+            let title = format!(" {} {} ", display_name, status_symbol);
 
             let lines: Vec<Line> = process
                 .output
@@ -35,17 +36,20 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 })
                 .collect();
 
-            (title, lines)
+            let total_lines = lines.len();
+            let scroll_offset = process.scroll_offset;
+
+            (title, lines, Some((total_lines, scroll_offset)))
         }
-        None => (" No Process Selected ".to_string(), vec![]),
+        None => (" No Process Selected ".to_string(), vec![], None),
     };
 
-    // Calculate visible area height
-    let inner_height = area.height.saturating_sub(2) as usize; // Account for borders
+    // Calculate visible area height (account for borders and padding)
+    let inner_height = area.height.saturating_sub(2) as usize;
     let total_lines = lines.len();
 
     // Get scroll offset from selected process
-    let scroll_offset = app.selected_process().map(|p| p.scroll_offset).unwrap_or(0);
+    let scroll_offset = scroll_state.map(|(_, offset)| offset).unwrap_or(0);
 
     // Calculate scroll position (scroll from bottom by default)
     let scroll = if scroll_offset == 0 {
@@ -58,16 +62,34 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             .saturating_sub(scroll_offset) as u16
     };
 
+    let block = Theme::focused_block(&title).padding(Padding::horizontal(1));
+
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(title)
-                .title_style(Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Theme::BORDER_FOCUSED)),
-        )
+        .block(block)
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
 
     frame.render_widget(paragraph, area);
+
+    // Render scrollbar if content overflows
+    if total_lines > inner_height {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .thumb_style(Style::default().fg(Theme::SCROLLBAR_THUMB))
+            .track_style(Style::default().fg(Theme::SCROLLBAR_TRACK));
+
+        let mut scrollbar_state =
+            ScrollbarState::new(total_lines.saturating_sub(inner_height)).position(scroll as usize);
+
+        // Render scrollbar in the inner area (inside border)
+        let scrollbar_area = Rect {
+            x: area.x + area.width.saturating_sub(2),
+            y: area.y + 1,
+            width: 1,
+            height: area.height.saturating_sub(2),
+        };
+
+        frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+    }
 }
