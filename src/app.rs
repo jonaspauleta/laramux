@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use crate::process::types::{Process, ProcessConfig, ProcessKind, ProcessStatus};
+use crate::process::types::{Process, ProcessConfig, ProcessId, ProcessRegistry, ProcessStatus};
 
 /// Maximum number of log lines to display
 pub const MAX_LOG_LINES: usize = 100;
@@ -55,10 +55,10 @@ impl LogLevel {
 /// The main application state
 pub struct App {
     /// All managed processes
-    pub processes: HashMap<ProcessKind, Process>,
+    pub processes: HashMap<ProcessId, Process>,
 
     /// Order of processes for display
-    pub process_order: Vec<ProcessKind>,
+    pub process_order: Vec<ProcessId>,
 
     /// Currently selected process index in the sidebar
     pub selected_index: usize,
@@ -77,6 +77,9 @@ pub struct App {
 
     /// Status message to display
     pub status_message: Option<String>,
+
+    /// Process registry for metadata lookup
+    pub registry: ProcessRegistry,
 }
 
 impl App {
@@ -90,35 +93,41 @@ impl App {
             working_dir,
             should_quit: false,
             status_message: None,
+            registry: ProcessRegistry::new(),
         }
+    }
+
+    /// Set the process registry
+    pub fn set_registry(&mut self, registry: ProcessRegistry) {
+        self.registry = registry;
     }
 
     /// Register a process configuration
     pub fn register_process(&mut self, config: ProcessConfig) {
-        let kind = config.kind;
-        if !self.process_order.contains(&kind) {
-            self.process_order.push(kind);
+        let id = config.id.clone();
+        if !self.process_order.contains(&id) {
+            self.process_order.push(id.clone());
         }
-        self.processes.insert(kind, Process::new(config));
+        self.processes.insert(id, Process::new(config));
     }
 
     /// Get the currently selected process
     pub fn selected_process(&self) -> Option<&Process> {
         self.process_order
             .get(self.selected_index)
-            .and_then(|kind| self.processes.get(kind))
+            .and_then(|id| self.processes.get(id))
     }
 
     /// Get the currently selected process mutably
     pub fn selected_process_mut(&mut self) -> Option<&mut Process> {
         self.process_order
             .get(self.selected_index)
-            .and_then(|kind| self.processes.get_mut(kind))
+            .and_then(|id| self.processes.get_mut(id))
     }
 
-    /// Get the currently selected process kind
-    pub fn selected_kind(&self) -> Option<ProcessKind> {
-        self.process_order.get(self.selected_index).copied()
+    /// Get the currently selected process id
+    pub fn selected_id(&self) -> Option<&ProcessId> {
+        self.process_order.get(self.selected_index)
     }
 
     /// Move selection up
@@ -136,8 +145,8 @@ impl App {
     }
 
     /// Add output to a process
-    pub fn add_process_output(&mut self, kind: ProcessKind, line: String, is_stderr: bool) {
-        if let Some(process) = self.processes.get_mut(&kind) {
+    pub fn add_process_output(&mut self, id: &ProcessId, line: String, is_stderr: bool) {
+        if let Some(process) = self.processes.get_mut(id) {
             let output_line = if is_stderr {
                 crate::process::types::OutputLine::stderr(line)
             } else {
@@ -148,15 +157,15 @@ impl App {
     }
 
     /// Update process status
-    pub fn set_process_status(&mut self, kind: ProcessKind, status: ProcessStatus) {
-        if let Some(process) = self.processes.get_mut(&kind) {
+    pub fn set_process_status(&mut self, id: &ProcessId, status: ProcessStatus) {
+        if let Some(process) = self.processes.get_mut(id) {
             process.status = status;
         }
     }
 
     /// Set process PID
-    pub fn set_process_pid(&mut self, kind: ProcessKind, pid: Option<u32>) {
-        if let Some(process) = self.processes.get_mut(&kind) {
+    pub fn set_process_pid(&mut self, id: &ProcessId, pid: Option<u32>) {
+        if let Some(process) = self.processes.get_mut(id) {
             process.pid = pid;
         }
     }

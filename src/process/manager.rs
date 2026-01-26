@@ -8,12 +8,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{LaraMuxError, Result};
 use crate::event::Event;
-use crate::process::types::{ProcessConfig, ProcessKind};
+use crate::process::types::{ProcessConfig, ProcessId};
 
 /// Manages spawning, killing, and restarting processes
 pub struct ProcessManager {
-    children: HashMap<ProcessKind, Child>,
-    configs: HashMap<ProcessKind, ProcessConfig>,
+    children: HashMap<ProcessId, Child>,
+    configs: HashMap<ProcessId, ProcessConfig>,
     event_tx: mpsc::Sender<Event>,
     cancel_token: CancellationToken,
 }
@@ -30,19 +30,19 @@ impl ProcessManager {
 
     /// Register a process configuration
     pub fn register(&mut self, config: ProcessConfig) {
-        self.configs.insert(config.kind, config);
+        self.configs.insert(config.id.clone(), config);
     }
 
     /// Spawn a process
-    pub async fn spawn(&mut self, kind: ProcessKind) -> Result<()> {
+    pub async fn spawn(&mut self, id: &ProcessId) -> Result<()> {
         let config = self
             .configs
-            .get(&kind)
-            .ok_or_else(|| LaraMuxError::ProcessNotFound(kind.to_string()))?
+            .get(id)
+            .ok_or_else(|| LaraMuxError::ProcessNotFound(id.to_string()))?
             .clone();
 
         // Kill existing process if running
-        self.kill(kind).await?;
+        self.kill(id).await?;
 
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
@@ -52,7 +52,7 @@ impl ProcessManager {
             .kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(|e| LaraMuxError::SpawnFailed {
-            name: kind.to_string(),
+            name: id.to_string(),
             reason: e.to_string(),
         })?;
 
@@ -62,6 +62,7 @@ impl ProcessManager {
         if let Some(stdout) = child.stdout.take() {
             let tx = self.event_tx.clone();
             let token = self.cancel_token.clone();
+            let process_id = id.clone();
             tokio::spawn(async move {
                 let reader = BufReader::new(stdout);
                 let mut lines = reader.lines();
@@ -72,7 +73,7 @@ impl ProcessManager {
                             match result {
                                 Ok(Some(line)) => {
                                     let _ = tx.send(Event::ProcessOutput {
-                                        kind,
+                                        id: process_id.clone(),
                                         line,
                                         is_stderr: false,
                                     }).await;
@@ -90,6 +91,7 @@ impl ProcessManager {
         if let Some(stderr) = child.stderr.take() {
             let tx = self.event_tx.clone();
             let token = self.cancel_token.clone();
+            let process_id = id.clone();
             tokio::spawn(async move {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
@@ -100,7 +102,7 @@ impl ProcessManager {
                             match result {
                                 Ok(Some(line)) => {
                                     let _ = tx.send(Event::ProcessOutput {
-                                        kind,
+                                        id: process_id.clone(),
                                         line,
                                         is_stderr: true,
                                     }).await;
@@ -114,14 +116,14 @@ impl ProcessManager {
             });
         }
 
-        self.children.insert(kind, child);
+        self.children.insert(id.clone(), child);
 
         // Send initial status via event
         let _ = self
             .event_tx
             .send(Event::ProcessOutput {
-                kind,
-                line: format!("Started {} (PID: {:?})", kind, pid),
+                id: id.clone(),
+                line: format!("Started {} (PID: {:?})", id, pid),
                 is_stderr: false,
             })
             .await;
@@ -131,16 +133,16 @@ impl ProcessManager {
 
     /// Spawn all registered processes
     pub async fn spawn_all(&mut self) -> Result<()> {
-        let kinds: Vec<ProcessKind> = self.configs.keys().copied().collect();
-        for kind in kinds {
-            self.spawn(kind).await?;
+        let ids: Vec<ProcessId> = self.configs.keys().cloned().collect();
+        for id in ids {
+            self.spawn(&id).await?;
         }
         Ok(())
     }
 
     /// Kill a process gracefully (SIGTERM, wait, then SIGKILL)
-    pub async fn kill(&mut self, kind: ProcessKind) -> Result<()> {
-        if let Some(mut child) = self.children.remove(&kind) {
+    pub async fn kill(&mut self, id: &ProcessId) -> Result<()> {
+        if let Some(mut child) = self.children.remove(id) {
             // Try graceful shutdown first
             #[cfg(unix)]
             {
@@ -165,7 +167,7 @@ impl ProcessManager {
                     let _ = self
                         .event_tx
                         .send(Event::ProcessExited {
-                            kind,
+                            id: id.clone(),
                             exit_code: status.code(),
                         })
                         .await;
@@ -177,7 +179,7 @@ impl ProcessManager {
                     let _ = self
                         .event_tx
                         .send(Event::ProcessExited {
-                            kind,
+                            id: id.clone(),
                             exit_code: None,
                         })
                         .await;
@@ -189,37 +191,37 @@ impl ProcessManager {
 
     /// Kill all processes
     pub async fn kill_all(&mut self) -> Result<()> {
-        let kinds: Vec<ProcessKind> = self.children.keys().copied().collect();
-        for kind in kinds {
-            self.kill(kind).await?;
+        let ids: Vec<ProcessId> = self.children.keys().cloned().collect();
+        for id in ids {
+            self.kill(&id).await?;
         }
         Ok(())
     }
 
     /// Restart a process
-    pub async fn restart(&mut self, kind: ProcessKind) -> Result<()> {
-        self.kill(kind).await?;
+    pub async fn restart(&mut self, id: &ProcessId) -> Result<()> {
+        self.kill(id).await?;
         // Small delay before restarting
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.spawn(kind).await
+        self.spawn(id).await
     }
 
     /// Restart all processes
     pub async fn restart_all(&mut self) -> Result<()> {
-        let kinds: Vec<ProcessKind> = self.configs.keys().copied().collect();
-        for kind in kinds {
-            self.restart(kind).await?;
+        let ids: Vec<ProcessId> = self.configs.keys().cloned().collect();
+        for id in ids {
+            self.restart(&id).await?;
         }
         Ok(())
     }
 
     /// Check if a process is running
-    pub fn is_running(&self, kind: ProcessKind) -> bool {
-        self.children.contains_key(&kind)
+    pub fn is_running(&self, id: &ProcessId) -> bool {
+        self.children.contains_key(id)
     }
 
     /// Get process PID
-    pub fn get_pid(&self, kind: ProcessKind) -> Option<u32> {
-        self.children.get(&kind).and_then(|c| c.id())
+    pub fn get_pid(&self, id: &ProcessId) -> Option<u32> {
+        self.children.get(id).and_then(|c| c.id())
     }
 }

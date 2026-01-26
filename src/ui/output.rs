@@ -8,11 +8,8 @@ use crate::app::App;
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let (title, lines) = match app.selected_process() {
         Some(process) => {
-            let title = format!(
-                " {} Output {} ",
-                process.kind.display_name(),
-                process.status.indicator()
-            );
+            let display_name = app.registry.display_name(&process.id);
+            let title = format!(" {} Output {} ", display_name, process.status.indicator());
 
             let lines: Vec<Line> = process
                 .output

@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyEvent;
 
-use crate::process::types::ProcessKind;
+use crate::process::types::ProcessId;
 
 /// Events that can occur in the application
 #[derive(Debug, Clone)]
@@ -12,14 +12,14 @@ pub enum Event {
 
     /// Output line from a managed process
     ProcessOutput {
-        kind: ProcessKind,
+        id: ProcessId,
         line: String,
         is_stderr: bool,
     },
 
     /// A managed process has exited
     ProcessExited {
-        kind: ProcessKind,
+        id: ProcessId,
         exit_code: Option<i32>,
     },
 

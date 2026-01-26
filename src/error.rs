@@ -19,6 +19,9 @@ pub enum LaraMuxError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Configuration validation error: {0}")]
+    ConfigValidation(String),
+
     #[error("File not found: {0}")]
     FileNotFound(String),
 

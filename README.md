@@ -101,11 +101,14 @@ LaraMux expects to be run from a Laravel project root containing:
 | `s` | Restart Laravel serve |
 | `v` | Restart Vite dev server |
 | `q` | Restart queue worker |
+| `h` | Restart Horizon |
 | `b` | Restart Reverb (websockets) |
 | `r` | Restart all processes |
 | `c` | Clear selected process output |
 | `Page Up` / `Page Down` | Scroll output |
 | `Ctrl+C` | Quit and stop all processes |
+
+Custom processes can define their own hotkeys (see Configuration below).
 
 ## Detected Services
 
@@ -114,7 +117,8 @@ LaraMux automatically detects and manages:
 | Service | Detection | Command |
 |---------|-----------|---------|
 | **Serve** | Always (unless Laravel Herd detected) | `php artisan serve` |
-| **Queue** | Always (Laravel project) | `php artisan queue:work --tries=3` |
+| **Queue** | Always (unless Horizon detected) | `php artisan queue:work --tries=3` |
+| **Horizon** | `laravel/horizon` in composer.json | `php artisan horizon` |
 | **Vite** | `vite` in package.json | `npm/yarn/pnpm/bun run dev` |
 | **Reverb** | `laravel/reverb` in composer.json | `php artisan reverb:start` |
 
@@ -122,7 +126,94 @@ LaraMux automatically detects and manages:
 
 ## Configuration
 
-Currently, LaraMux uses sensible defaults. Custom configuration support is planned for future releases.
+Create a `.laramux.json` file in your Laravel project root to customize LaraMux behavior. All sections are optional.
+
+### Disable Built-in Processes
+
+```json
+{
+  "disabled": {
+    "serve": true,
+    "queue": true
+  }
+}
+```
+
+Available processes to disable: `serve`, `vite`, `queue`, `horizon`, `reverb`
+
+### Override Process Commands
+
+```json
+{
+  "overrides": {
+    "serve": {
+      "command": "php",
+      "args": ["artisan", "serve", "--port=8080", "--host=0.0.0.0"]
+    },
+    "queue": {
+      "args": ["artisan", "queue:work", "--tries=5", "--timeout=90"]
+    }
+  }
+}
+```
+
+### Add Custom Processes
+
+```json
+{
+  "custom": [
+    {
+      "name": "scheduler",
+      "display_name": "Scheduler",
+      "hotkey": "d",
+      "command": "php",
+      "args": ["artisan", "schedule:work"]
+    },
+    {
+      "name": "octane",
+      "display_name": "Octane",
+      "hotkey": "o",
+      "command": "php",
+      "args": ["artisan", "octane:start", "--watch"]
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique identifier for the process |
+| `display_name` | Yes | Name shown in the sidebar |
+| `command` | Yes | Executable to run |
+| `args` | No | Command arguments (default: `[]`) |
+| `hotkey` | No | Single lowercase letter for quick restart |
+| `enabled` | No | Set to `false` to disable (default: `true`) |
+
+**Reserved hotkeys:** `r` (restart all), `c` (clear output)
+
+### Complete Example
+
+```json
+{
+  "disabled": {
+    "serve": true
+  },
+  "overrides": {
+    "queue": {
+      "args": ["artisan", "queue:work", "--queue=high,default"]
+    }
+  },
+  "custom": [
+    {
+      "name": "scheduler",
+      "display_name": "Scheduler",
+      "hotkey": "d",
+      "command": "php",
+      "args": ["artisan", "schedule:work"]
+    }
+  ]
+}
+```
 
 ## Troubleshooting
 

@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
-/// The kind of Laravel process being managed
+/// The kind of built-in Laravel process being managed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProcessKind {
     Serve,
@@ -34,6 +34,16 @@ impl ProcessKind {
         }
     }
 
+    pub fn config_name(&self) -> &'static str {
+        match self {
+            ProcessKind::Serve => "serve",
+            ProcessKind::Vite => "vite",
+            ProcessKind::Queue => "queue",
+            ProcessKind::Horizon => "horizon",
+            ProcessKind::Reverb => "reverb",
+        }
+    }
+
     pub fn all() -> &'static [ProcessKind] {
         &[
             ProcessKind::Serve,
@@ -48,6 +58,102 @@ impl ProcessKind {
 impl std::fmt::Display for ProcessKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.display_name())
+    }
+}
+
+/// Unified identifier for both built-in and custom processes
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProcessId {
+    Builtin(ProcessKind),
+    Custom(String),
+}
+
+impl ProcessId {
+    /// Create a ProcessId from a built-in ProcessKind
+    pub fn builtin(kind: ProcessKind) -> Self {
+        ProcessId::Builtin(kind)
+    }
+
+    /// Create a ProcessId for a custom process
+    pub fn custom(name: impl Into<String>) -> Self {
+        ProcessId::Custom(name.into())
+    }
+}
+
+impl std::fmt::Display for ProcessId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProcessId::Builtin(kind) => write!(f, "{}", kind.display_name()),
+            ProcessId::Custom(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl From<ProcessKind> for ProcessId {
+    fn from(kind: ProcessKind) -> Self {
+        ProcessId::Builtin(kind)
+    }
+}
+
+/// Metadata for a process (used by registry)
+#[derive(Debug, Clone)]
+pub struct ProcessMetadata {
+    pub display_name: String,
+    pub hotkey: Option<char>,
+}
+
+/// Registry for process metadata, handles both built-in and custom processes
+#[derive(Debug, Default)]
+pub struct ProcessRegistry {
+    custom_metadata: HashMap<String, ProcessMetadata>,
+}
+
+impl ProcessRegistry {
+    pub fn new() -> Self {
+        Self {
+            custom_metadata: HashMap::new(),
+        }
+    }
+
+    /// Register a custom process
+    pub fn register_custom(&mut self, name: String, display_name: String, hotkey: Option<char>) {
+        self.custom_metadata.insert(
+            name,
+            ProcessMetadata {
+                display_name,
+                hotkey,
+            },
+        );
+    }
+
+    /// Get display name for a process
+    pub fn display_name(&self, id: &ProcessId) -> String {
+        match id {
+            ProcessId::Builtin(kind) => kind.display_name().to_string(),
+            ProcessId::Custom(name) => self
+                .custom_metadata
+                .get(name)
+                .map(|m| m.display_name.clone())
+                .unwrap_or_else(|| name.clone()),
+        }
+    }
+
+    /// Get hotkey for a process
+    pub fn hotkey(&self, id: &ProcessId) -> Option<char> {
+        match id {
+            ProcessId::Builtin(kind) => kind.hotkey(),
+            ProcessId::Custom(name) => self.custom_metadata.get(name).and_then(|m| m.hotkey),
+        }
+    }
+
+    /// Find a process by hotkey
+    pub fn find_by_hotkey(&self, hotkey: char, process_order: &[ProcessId]) -> Option<ProcessId> {
+        for id in process_order {
+            if self.hotkey(id) == Some(hotkey) {
+                return Some(id.clone());
+            }
+        }
+        None
     }
 }
 
@@ -75,16 +181,16 @@ impl ProcessStatus {
 /// Configuration for spawning a process
 #[derive(Debug, Clone)]
 pub struct ProcessConfig {
-    pub kind: ProcessKind,
+    pub id: ProcessId,
     pub command: String,
     pub args: Vec<String>,
     pub working_dir: PathBuf,
 }
 
 impl ProcessConfig {
-    pub fn new(kind: ProcessKind, command: impl Into<String>, working_dir: PathBuf) -> Self {
+    pub fn new(id: impl Into<ProcessId>, command: impl Into<String>, working_dir: PathBuf) -> Self {
         Self {
-            kind,
+            id: id.into(),
             command: command.into(),
             args: Vec::new(),
             working_dir,
@@ -139,7 +245,7 @@ impl OutputLine {
 /// A managed process with its state and output
 #[derive(Debug)]
 pub struct Process {
-    pub kind: ProcessKind,
+    pub id: ProcessId,
     pub status: ProcessStatus,
     pub config: ProcessConfig,
     pub output: VecDeque<OutputLine>,
@@ -150,7 +256,7 @@ pub struct Process {
 impl Process {
     pub fn new(config: ProcessConfig) -> Self {
         Self {
-            kind: config.kind,
+            id: config.id.clone(),
             status: ProcessStatus::Stopped,
             config,
             output: VecDeque::with_capacity(MAX_OUTPUT_LINES),

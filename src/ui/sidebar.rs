@@ -9,19 +9,21 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = app
         .process_order
         .iter()
-        .map(|kind| {
-            let process = app.processes.get(kind);
+        .map(|id| {
+            let process = app.processes.get(id);
             let (indicator, status_text) = match process {
                 Some(p) => (p.status.indicator(), p.status),
                 None => ("⚫", crate::process::types::ProcessStatus::Stopped),
             };
 
-            let hotkey = kind
-                .hotkey()
+            let display_name = app.registry.display_name(id);
+            let hotkey = app
+                .registry
+                .hotkey(id)
                 .map(|k| format!("[{}]", k))
                 .unwrap_or_default();
 
-            let content = format!("{} {} {}", indicator, kind.display_name(), hotkey);
+            let content = format!("{} {} {}", indicator, display_name, hotkey);
 
             let style = match status_text {
                 crate::process::types::ProcessStatus::Running => Style::default().fg(Color::Green),

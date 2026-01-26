@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod error;
 mod event;
 mod log;
@@ -15,6 +16,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use app::App;
+use config::LaramuxConfig;
 use error::Result;
 use event::Event;
 use log::{find_log_file, LogWatcher};
@@ -35,9 +37,18 @@ async fn main() -> Result<()> {
 }
 
 async fn run(working_dir: PathBuf) -> Result<()> {
+    // Load configuration (optional)
+    let config = match LaramuxConfig::load(&working_dir) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Warning: Failed to load .laramux.json: {}", e);
+            None
+        }
+    };
+
     // Discover available services
-    let configs = discover_services(&working_dir)?;
-    if configs.is_empty() {
+    let discovery_result = discover_services(&working_dir, config.as_ref())?;
+    if discovery_result.configs.is_empty() {
         eprintln!("No Laravel services found in this directory");
         return Ok(());
     }
@@ -50,13 +61,14 @@ async fn run(working_dir: PathBuf) -> Result<()> {
 
     // Initialize app state
     let mut app = App::new(working_dir.clone());
-    for config in &configs {
+    app.set_registry(discovery_result.registry);
+    for config in &discovery_result.configs {
         app.register_process(config.clone());
     }
 
     // Initialize process manager
     let mut process_manager = ProcessManager::new(event_tx.clone(), cancel_token.clone());
-    for config in configs {
+    for config in discovery_result.configs {
         process_manager.register(config);
     }
 
@@ -113,10 +125,10 @@ async fn run(working_dir: PathBuf) -> Result<()> {
     process_manager.spawn_all().await?;
 
     // Update initial status
-    for kind in app.process_order.clone() {
-        if process_manager.is_running(kind) {
-            app.set_process_status(kind, ProcessStatus::Running);
-            app.set_process_pid(kind, process_manager.get_pid(kind));
+    for id in app.process_order.clone() {
+        if process_manager.is_running(&id) {
+            app.set_process_status(&id, ProcessStatus::Running);
+            app.set_process_pid(&id, process_manager.get_pid(&id));
         }
     }
 
@@ -138,85 +150,15 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                         match key.code {
                             KeyCode::Up => app.select_previous(),
                             KeyCode::Down => app.select_next(),
-                            KeyCode::Char('q') => {
-                                // Restart queue worker
-                                app.set_status("Restarting queue worker...");
-                                app.set_process_status(
-                                    process::ProcessKind::Queue,
-                                    ProcessStatus::Restarting,
-                                );
-                                let _ = process_manager.restart(process::ProcessKind::Queue).await;
-                                app.set_process_status(
-                                    process::ProcessKind::Queue,
-                                    ProcessStatus::Running,
-                                );
-                                app.clear_status();
-                            }
-                            KeyCode::Char('v') => {
-                                // Restart Vite
-                                app.set_status("Restarting Vite...");
-                                app.set_process_status(
-                                    process::ProcessKind::Vite,
-                                    ProcessStatus::Restarting,
-                                );
-                                let _ = process_manager.restart(process::ProcessKind::Vite).await;
-                                app.set_process_status(
-                                    process::ProcessKind::Vite,
-                                    ProcessStatus::Running,
-                                );
-                                app.clear_status();
-                            }
-                            KeyCode::Char('s') => {
-                                // Restart Serve
-                                app.set_status("Restarting serve...");
-                                app.set_process_status(
-                                    process::ProcessKind::Serve,
-                                    ProcessStatus::Restarting,
-                                );
-                                let _ = process_manager.restart(process::ProcessKind::Serve).await;
-                                app.set_process_status(
-                                    process::ProcessKind::Serve,
-                                    ProcessStatus::Running,
-                                );
-                                app.clear_status();
-                            }
-                            KeyCode::Char('b') => {
-                                // Restart Reverb
-                                app.set_status("Restarting Reverb...");
-                                app.set_process_status(
-                                    process::ProcessKind::Reverb,
-                                    ProcessStatus::Restarting,
-                                );
-                                let _ = process_manager.restart(process::ProcessKind::Reverb).await;
-                                app.set_process_status(
-                                    process::ProcessKind::Reverb,
-                                    ProcessStatus::Running,
-                                );
-                                app.clear_status();
-                            }
-                            KeyCode::Char('h') => {
-                                // Restart Horizon
-                                app.set_status("Restarting Horizon...");
-                                app.set_process_status(
-                                    process::ProcessKind::Horizon,
-                                    ProcessStatus::Restarting,
-                                );
-                                let _ = process_manager.restart(process::ProcessKind::Horizon).await;
-                                app.set_process_status(
-                                    process::ProcessKind::Horizon,
-                                    ProcessStatus::Running,
-                                );
-                                app.clear_status();
-                            }
                             KeyCode::Char('r') => {
                                 // Restart all
                                 app.set_status("Restarting all processes...");
-                                for kind in app.process_order.clone() {
-                                    app.set_process_status(kind, ProcessStatus::Restarting);
+                                for id in app.process_order.clone() {
+                                    app.set_process_status(&id, ProcessStatus::Restarting);
                                 }
                                 let _ = process_manager.restart_all().await;
-                                for kind in app.process_order.clone() {
-                                    app.set_process_status(kind, ProcessStatus::Running);
+                                for id in app.process_order.clone() {
+                                    app.set_process_status(&id, ProcessStatus::Running);
                                 }
                                 app.clear_status();
                             }
@@ -230,25 +172,38 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                             KeyCode::PageDown => {
                                 app.scroll_output_down(10);
                             }
+                            KeyCode::Char(ch) => {
+                                // Dynamic hotkey handling via registry
+                                if let Some(id) =
+                                    app.registry.find_by_hotkey(ch, &app.process_order)
+                                {
+                                    let display_name = app.registry.display_name(&id);
+                                    app.set_status(format!("Restarting {}...", display_name));
+                                    app.set_process_status(&id, ProcessStatus::Restarting);
+                                    let _ = process_manager.restart(&id).await;
+                                    app.set_process_status(&id, ProcessStatus::Running);
+                                    app.clear_status();
+                                }
+                            }
                             _ => {}
                         }
                     }
                 }
                 Event::ProcessOutput {
-                    kind,
+                    id,
                     line,
                     is_stderr,
                 } => {
-                    app.add_process_output(kind, line, is_stderr);
+                    app.add_process_output(&id, line, is_stderr);
                 }
-                Event::ProcessExited { kind, exit_code } => {
+                Event::ProcessExited { id, exit_code } => {
                     let status = if exit_code == Some(0) {
                         ProcessStatus::Stopped
                     } else {
                         ProcessStatus::Failed
                     };
-                    app.set_process_status(kind, status);
-                    app.set_process_pid(kind, None);
+                    app.set_process_status(&id, status);
+                    app.set_process_pid(&id, None);
                 }
                 Event::LogUpdate(lines) => {
                     app.add_log_lines(lines);
@@ -258,11 +213,11 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                 }
                 Event::Tick => {
                     // Update process status from manager
-                    for kind in app.process_order.clone() {
-                        let is_running = process_manager.is_running(kind);
+                    for id in app.process_order.clone() {
+                        let is_running = process_manager.is_running(&id);
                         let current_status = app
                             .processes
-                            .get(&kind)
+                            .get(&id)
                             .map(|p| p.status)
                             .unwrap_or(ProcessStatus::Stopped);
 
@@ -271,7 +226,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                             && is_running
                             && current_status != ProcessStatus::Running
                         {
-                            app.set_process_status(kind, ProcessStatus::Running);
+                            app.set_process_status(&id, ProcessStatus::Running);
                         }
                     }
                 }
