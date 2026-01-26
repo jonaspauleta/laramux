@@ -33,25 +33,53 @@ A terminal UI application for managing Laravel development processes in a single
 
 ## Installation
 
-### From Source
-
 Requires Rust 1.70 or later.
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/laramux.git
-cd laramux
+### Option 1: Run with `--manifest-path`
 
-# Install globally
+```bash
+cd /path/to/laravel-project
+cargo run --manifest-path /path/to/laramux/Cargo.toml
+```
+
+### Option 2: Build and install the binary (Recommended)
+
+```bash
+cd /path/to/laramux
 cargo install --path .
+
+# Then run from any Laravel project:
+cd /path/to/laravel-project
+laramux
 ```
 
-### Build Only
+### Option 3: Build release and copy binary
 
 ```bash
+cd /path/to/laramux
 cargo build --release
-# Binary available at: target/release/laramux
+# Binary is at: target/release/laramux
+
+# Copy to a directory in your PATH:
+cp target/release/laramux /usr/local/bin/
+
+# Then run from any Laravel project:
+cd /path/to/laravel-project
+laramux
 ```
+
+### Option 4: Create an alias
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc:
+alias laramux='cargo run --manifest-path /path/to/laramux/Cargo.toml'
+
+# Then:
+cd /path/to/laravel-project
+laramux
+```
+
+> **Note:** Option 2 (`cargo install --path .`) is the cleanest approach for regular use.
 
 ## Usage
 
