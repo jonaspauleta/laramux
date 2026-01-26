@@ -3,6 +3,11 @@ name = "laramux"
 version = "0.1.0"
 edition = "2021"
 description = "A TUI application for managing Laravel development processes"
+authors = ["João Paulo Santos"]
+license = "MIT"
+repository = "https://github.com/jonaspauleta/laramux"
+keywords = ["laravel", "tui", "terminal", "development", "php"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 ratatui = "0.28"
