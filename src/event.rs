@@ -2,6 +2,8 @@
 
 use crossterm::event::KeyEvent;
 
+use crate::app::SystemStats;
+use crate::log::LogEntry;
 use crate::process::types::ProcessId;
 
 /// Events that can occur in the application
@@ -23,12 +25,24 @@ pub enum Event {
         exit_code: Option<i32>,
     },
 
-    /// New content from laravel.log
-    LogUpdate(Vec<String>),
+    /// Request to auto-restart a process (after backoff delay)
+    ProcessAutoRestart { id: ProcessId },
+
+    /// New content from log files
+    LogUpdate(Vec<LogEntry>),
 
     /// Terminal resize event
     Resize(u16, u16),
 
     /// Tick event for periodic updates
     Tick,
+
+    /// Output from a command runner (Commands tab)
+    CommandOutput { line: String, is_stderr: bool },
+
+    /// A command has exited
+    CommandExited { exit_code: Option<i32> },
+
+    /// System stats update
+    SystemStatsUpdate(SystemStats),
 }

@@ -1,0 +1,300 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jonaspauleta/laramux/blob/main/.laramux.schema.json",
+  "title": "LaraMux Configuration",
+  "description": "Configuration schema for LaraMux - Laravel development process manager",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "disabled": {
+      "type": "object",
+      "description": "Disable built-in processes",
+      "additionalProperties": false,
+      "properties": {
+        "serve": {
+          "type": "boolean",
+          "description": "Disable artisan serve",
+          "default": false
+        },
+        "vite": {
+          "type": "boolean",
+          "description": "Disable Vite dev server",
+          "default": false
+        },
+        "queue": {
+          "type": "boolean",
+          "description": "Disable queue worker",
+          "default": false
+        },
+        "horizon": {
+          "type": "boolean",
+          "description": "Disable Laravel Horizon",
+          "default": false
+        },
+        "reverb": {
+          "type": "boolean",
+          "description": "Disable Laravel Reverb",
+          "default": false
+        }
+      }
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Override built-in process configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/override"
+      },
+      "propertyNames": {
+        "enum": ["serve", "vite", "queue", "horizon", "reverb"]
+      }
+    },
+    "custom": {
+      "type": "array",
+      "description": "Custom processes to run",
+      "items": {
+        "$ref": "#/definitions/customProcess"
+      }
+    },
+    "quality": {
+      "type": "object",
+      "description": "Quality and testing tools configuration",
+      "additionalProperties": false,
+      "properties": {
+        "disabled_tools": {
+          "type": "array",
+          "description": "List of quality/testing tools to disable (by display name)",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["phpcs", "PHPStan"]]
+        },
+        "custom_tools": {
+          "type": "array",
+          "description": "Custom quality or testing tools",
+          "items": {
+            "$ref": "#/definitions/customTool"
+          }
+        },
+        "default_args": {
+          "type": "object",
+          "description": "Additional default arguments for tools (keyed by lowercase tool name)",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "examples": [{"phpstan": ["--memory-limit=512M"]}]
+        }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "description": "Log viewing configuration",
+      "additionalProperties": false,
+      "properties": {
+        "max_lines": {
+          "type": "integer",
+          "description": "Maximum number of log lines to keep in memory",
+          "minimum": 10,
+          "maximum": 10000,
+          "default": 100
+        },
+        "files": {
+          "type": "array",
+          "description": "Additional log files to watch (relative paths from project root)",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["storage/logs/queue.log", "storage/logs/horizon.log"]]
+        },
+        "default_filter": {
+          "type": "string",
+          "description": "Default log level filter on startup",
+          "enum": ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]
+        }
+      }
+    },
+    "artisan": {
+      "type": "object",
+      "description": "Artisan command configuration",
+      "additionalProperties": false,
+      "properties": {
+        "favorites": {
+          "type": "array",
+          "description": "Favorite artisan command names (e.g., 'migrate:fresh', 'cache:clear'). Press 'f' in the Artisan tab to toggle favorites.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": [["migrate:fresh", "cache:clear", "optimize:clear"]]
+        }
+      }
+    },
+    "make": {
+      "type": "object",
+      "description": "Make command configuration",
+      "additionalProperties": false,
+      "properties": {
+        "favorites": {
+          "type": "array",
+          "description": "Favorite make command names (e.g., 'make:model', 'make:controller'). Press 'f' in the Make tab to toggle favorites.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": [["make:model", "make:controller", "make:migration"]]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "restartPolicy": {
+      "type": "string",
+      "description": "When to automatically restart the process",
+      "enum": ["never", "on_failure", "always"],
+      "default": "never"
+    },
+    "override": {
+      "type": "object",
+      "description": "Override configuration for a built-in process",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Override the command executable"
+        },
+        "args": {
+          "type": "array",
+          "description": "Override command arguments",
+          "items": {
+            "type": "string"
+          }
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory relative to project root (no '..' allowed)",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to set",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "restart_policy": {
+          "$ref": "#/definitions/restartPolicy"
+        }
+      }
+    },
+    "customProcess": {
+      "type": "object",
+      "description": "A custom process definition",
+      "additionalProperties": false,
+      "required": ["name", "display_name", "command"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique identifier (cannot match built-in names)",
+          "minLength": 1,
+          "not": {
+            "enum": ["serve", "vite", "queue", "horizon", "reverb"]
+          }
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Display name shown in sidebar",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "description": "Executable to run",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Command arguments",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "hotkey": {
+          "type": "string",
+          "description": "Single lowercase letter for quick restart (r and c are reserved)",
+          "pattern": "^[a-z]$",
+          "not": {
+            "enum": ["r", "c"]
+          }
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the process is enabled",
+          "default": true
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory relative to project root (no '..' allowed)",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to set",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "restart_policy": {
+          "$ref": "#/definitions/restartPolicy"
+        }
+      }
+    },
+    "customTool": {
+      "type": "object",
+      "description": "A custom quality or testing tool",
+      "additionalProperties": false,
+      "required": ["name", "display_name", "command", "category"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique identifier for the tool",
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Display name shown in Quality tab",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "description": "Executable to run",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Command arguments",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "category": {
+          "type": "string",
+          "description": "Tool category",
+          "enum": ["quality", "testing"]
+        }
+      }
+    }
+  }
+}

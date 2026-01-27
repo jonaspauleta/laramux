@@ -3,6 +3,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
+use crate::config::RestartPolicy;
+
 /// The kind of built-in Laravel process being managed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProcessKind {
@@ -185,6 +187,8 @@ pub struct ProcessConfig {
     pub command: String,
     pub args: Vec<String>,
     pub working_dir: PathBuf,
+    pub env: HashMap<String, String>,
+    pub restart_policy: RestartPolicy,
 }
 
 impl ProcessConfig {
@@ -194,11 +198,23 @@ impl ProcessConfig {
             command: command.into(),
             args: Vec::new(),
             working_dir,
+            env: HashMap::new(),
+            restart_policy: RestartPolicy::default(),
         }
     }
 
     pub fn with_args(mut self, args: Vec<String>) -> Self {
         self.args = args;
+        self
+    }
+
+    pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
+        self.env = env;
+        self
+    }
+
+    pub fn with_restart_policy(mut self, policy: RestartPolicy) -> Self {
+        self.restart_policy = policy;
         self
     }
 }

@@ -24,6 +24,10 @@ A terminal UI application for managing Laravel development processes in a single
   - [Disable Built-in Processes](#disable-built-in-processes)
   - [Override Process Commands](#override-process-commands)
   - [Add Custom Processes](#add-custom-processes)
+  - [Quality Tools Configuration](#quality-tools-configuration)
+  - [Log Configuration](#log-configuration)
+  - [Artisan Configuration](#artisan-configuration)
+  - [Restart Policies](#restart-policies)
   - [Complete Example](#complete-example)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -129,6 +133,7 @@ LaraMux expects to be run from a Laravel project root containing:
 | `b` | Restart Reverb (websockets) |
 | `r` | Restart all processes |
 | `c` | Clear selected process output |
+| `f` | Toggle favorite (Artisan/Make tabs) |
 | `Page Up` / `Page Down` | Scroll output |
 | `Ctrl+C` | Quit and stop all processes |
 
@@ -152,6 +157,14 @@ LaraMux automatically detects and manages:
 
 Create a `.laramux.json` file in your Laravel project root to customize LaraMux behavior. All sections are optional.
 
+For IDE autocompletion and validation, add the schema reference:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/jonaspauleta/laramux/main/.laramux.schema.json"
+}
+```
+
 ### Disable Built-in Processes
 
 ```json
@@ -167,19 +180,35 @@ Available processes to disable: `serve`, `vite`, `queue`, `horizon`, `reverb`
 
 ### Override Process Commands
 
+Override command, arguments, working directory, environment variables, and restart behavior:
+
 ```json
 {
   "overrides": {
     "serve": {
       "command": "php",
-      "args": ["artisan", "serve", "--port=8080", "--host=0.0.0.0"]
+      "args": ["artisan", "serve", "--port=8080", "--host=0.0.0.0"],
+      "working_dir": "backend",
+      "env": {
+        "APP_DEBUG": "true"
+      },
+      "restart_policy": "on_failure"
     },
     "queue": {
-      "args": ["artisan", "queue:work", "--tries=5", "--timeout=90"]
+      "args": ["artisan", "queue:work", "--tries=5", "--timeout=90"],
+      "restart_policy": "always"
     }
   }
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `command` | Override the executable |
+| `args` | Override command arguments |
+| `working_dir` | Relative path from project root (no `..` allowed) |
+| `env` | Environment variables (keys must be alphanumeric with underscores) |
+| `restart_policy` | `never` (default), `on_failure`, or `always` |
 
 ### Add Custom Processes
 
@@ -191,7 +220,12 @@ Available processes to disable: `serve`, `vite`, `queue`, `horizon`, `reverb`
       "display_name": "Scheduler",
       "hotkey": "d",
       "command": "php",
-      "args": ["artisan", "schedule:work"]
+      "args": ["artisan", "schedule:work"],
+      "working_dir": "backend",
+      "env": {
+        "LOG_LEVEL": "debug"
+      },
+      "restart_policy": "always"
     },
     {
       "name": "octane",
@@ -212,19 +246,129 @@ Available processes to disable: `serve`, `vite`, `queue`, `horizon`, `reverb`
 | `args` | No | Command arguments (default: `[]`) |
 | `hotkey` | No | Single lowercase letter for quick restart |
 | `enabled` | No | Set to `false` to disable (default: `true`) |
+| `working_dir` | No | Relative path from project root |
+| `env` | No | Environment variables |
+| `restart_policy` | No | `never`, `on_failure`, or `always` |
 
-**Reserved hotkeys:** `r` (restart all), `c` (clear output)
+**Reserved hotkeys:** `r` (restart all), `c` (clear output), `s`, `v`, `q`, `h`, `b` (built-in processes)
+
+### Quality Tools Configuration
+
+Customize the Quality tab tools - disable tools, add custom ones, or set default arguments:
+
+```json
+{
+  "quality": {
+    "disabled_tools": ["phpcs", "PHP_CodeSniffer"],
+    "custom_tools": [
+      {
+        "name": "custom-lint",
+        "display_name": "Custom Linter",
+        "command": "./scripts/lint.sh",
+        "args": ["--fix"],
+        "category": "quality"
+      },
+      {
+        "name": "dusk",
+        "display_name": "Laravel Dusk",
+        "command": "php",
+        "args": ["artisan", "dusk"],
+        "category": "testing"
+      }
+    ],
+    "default_args": {
+      "phpstan": ["--memory-limit=512M"],
+      "pest": ["--parallel"]
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `disabled_tools` | List of tool display names to hide |
+| `custom_tools` | Add custom quality or testing tools |
+| `default_args` | Extra arguments to append (keyed by lowercase tool name) |
+
+Custom tool fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique identifier |
+| `display_name` | Yes | Name shown in Quality tab |
+| `command` | Yes | Executable to run |
+| `args` | No | Command arguments |
+| `category` | Yes | `quality` or `testing` |
+
+### Log Configuration
+
+Customize log viewing behavior:
+
+```json
+{
+  "logs": {
+    "max_lines": 500,
+    "files": [
+      "storage/logs/queue.log",
+      "storage/logs/horizon.log"
+    ],
+    "default_filter": "warning"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `max_lines` | Max log lines to keep (10-10000, default: 100) |
+| `files` | Additional log files to watch (relative paths) |
+| `default_filter` | Default level filter: `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency` |
+
+### Artisan & Make Favorites
+
+Mark your frequently used commands as favorites by pressing `f` while viewing them in the Artisan or Make tabs. Favorites appear at the top of the command list with a ★ indicator and are automatically saved to your config file.
+
+You can also configure favorites manually:
+
+```json
+{
+  "artisan": {
+    "favorites": ["migrate:fresh", "cache:clear", "optimize:clear"]
+  },
+  "make": {
+    "favorites": ["make:model", "make:controller", "make:migration"]
+  }
+}
+```
+
+| Section | Description |
+|---------|-------------|
+| `artisan.favorites` | Array of artisan command names to mark as favorites |
+| `make.favorites` | Array of make command names to mark as favorites |
+
+### Restart Policies
+
+Processes can be configured to automatically restart:
+
+| Policy | Behavior |
+|--------|----------|
+| `never` | Never auto-restart (default) |
+| `on_failure` | Restart only if exit code is non-zero |
+| `always` | Always restart regardless of exit code |
+
+Auto-restart uses exponential backoff (2^failures seconds, max 60s) to prevent rapid restart loops.
 
 ### Complete Example
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/jonaspauleta/laramux/main/.laramux.schema.json",
   "disabled": {
     "serve": true
   },
   "overrides": {
     "queue": {
-      "args": ["artisan", "queue:work", "--queue=high,default"]
+      "args": ["artisan", "queue:work", "--queue=high,default"],
+      "restart_policy": "on_failure"
     }
   },
   "custom": [
@@ -233,9 +377,26 @@ Available processes to disable: `serve`, `vite`, `queue`, `horizon`, `reverb`
       "display_name": "Scheduler",
       "hotkey": "d",
       "command": "php",
-      "args": ["artisan", "schedule:work"]
+      "args": ["artisan", "schedule:work"],
+      "restart_policy": "always"
     }
-  ]
+  ],
+  "quality": {
+    "disabled_tools": ["phpcs"],
+    "default_args": {
+      "phpstan": ["--memory-limit=512M"]
+    }
+  },
+  "logs": {
+    "max_lines": 500,
+    "default_filter": "warning"
+  },
+  "artisan": {
+    "favorites": ["migrate:fresh", "cache:clear"]
+  },
+  "make": {
+    "favorites": ["make:model", "make:controller"]
+  }
 }
 ```
 
