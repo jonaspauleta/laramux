@@ -4,6 +4,7 @@ A terminal UI application for managing Laravel development processes in a single
 
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+![Downloads](https://img.shields.io/github/downloads/jonaspauleta/laramux/v1.0.0/total)
 
 ![LaraMux Preview](public/preview.gif)
 
