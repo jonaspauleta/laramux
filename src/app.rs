@@ -301,11 +301,22 @@ impl ArtisanTabState {
         &self,
         user_args: &str,
         favorites: &[String],
+        is_sail: bool,
     ) -> Option<ResolvedCommand> {
         let filtered = self.filtered_commands_with_favorites(favorites);
         let (cmd, _) = filtered.get(self.selected_command)?;
 
-        let mut args = vec!["artisan".to_string(), cmd.name.clone()];
+        let (command, mut args) = if is_sail {
+            (
+                "./vendor/bin/sail".to_string(),
+                vec!["artisan".to_string(), cmd.name.clone()],
+            )
+        } else {
+            (
+                "php".to_string(),
+                vec!["artisan".to_string(), cmd.name.clone()],
+            )
+        };
 
         if !user_args.is_empty() {
             for arg in user_args.split_whitespace() {
@@ -317,7 +328,7 @@ impl ArtisanTabState {
 
         Some(ResolvedCommand {
             display_name: format!("artisan {}", cmd.name),
-            command: "php".to_string(),
+            command,
             args,
         })
     }
@@ -407,7 +418,11 @@ impl MakeTabState {
     }
 
     /// Returns (display_name, full_command, is_favorite)
-    pub fn current_command_display(&self, favorites: &[String]) -> Vec<(String, String, bool)> {
+    pub fn current_command_display(
+        &self,
+        favorites: &[String],
+        is_sail: bool,
+    ) -> Vec<(String, String, bool)> {
         self.filtered_commands_with_favorites(favorites)
             .iter()
             .map(|(cmd, is_fav)| {
@@ -424,7 +439,12 @@ impl MakeTabState {
                         }
                     })
                     .unwrap_or_else(|| cmd.name.clone());
-                (display_name, format!("php artisan {}", cmd.name), *is_fav)
+                let full_command = if is_sail {
+                    format!("sail artisan {}", cmd.name)
+                } else {
+                    format!("php artisan {}", cmd.name)
+                };
+                (display_name, full_command, *is_fav)
             })
             .collect()
     }
@@ -433,11 +453,22 @@ impl MakeTabState {
         &self,
         user_args: &str,
         favorites: &[String],
+        is_sail: bool,
     ) -> Option<ResolvedCommand> {
         let filtered = self.filtered_commands_with_favorites(favorites);
         let (cmd, _) = filtered.get(self.selected_command)?;
 
-        let mut args = vec!["artisan".to_string(), cmd.name.clone()];
+        let (command, mut args) = if is_sail {
+            (
+                "./vendor/bin/sail".to_string(),
+                vec!["artisan".to_string(), cmd.name.clone()],
+            )
+        } else {
+            (
+                "php".to_string(),
+                vec!["artisan".to_string(), cmd.name.clone()],
+            )
+        };
 
         if !user_args.is_empty() {
             for arg in user_args.split_whitespace() {
@@ -461,7 +492,7 @@ impl MakeTabState {
 
         Some(ResolvedCommand {
             display_name,
-            command: "php".to_string(),
+            command,
             args,
         })
     }
@@ -966,6 +997,7 @@ pub struct QualityDraft {
 /// Complete editable copy of the configuration
 #[derive(Debug, Clone, Default)]
 pub struct ConfigDraft {
+    pub sail: Option<bool>,
     pub disabled: DisabledDraft,
     pub overrides: HashMap<String, OverrideDraft>,
     pub custom: Vec<CustomProcessDraft>,
@@ -979,6 +1011,7 @@ impl ConfigDraft {
     pub fn from_config(config: Option<&LaramuxConfig>) -> Self {
         match config {
             Some(cfg) => Self {
+                sail: cfg.sail,
                 disabled: DisabledDraft {
                     serve: cfg.disabled.serve,
                     vite: cfg.disabled.vite,
@@ -1031,6 +1064,7 @@ impl ConfigDraft {
         use crate::config::{ArtisanConfig, DisabledConfig, LogConfig, MakeConfig, QualityConfig};
 
         LaramuxConfig {
+            sail: self.sail,
             disabled: DisabledConfig {
                 serve: self.disabled.serve,
                 vite: self.disabled.vite,
@@ -1111,6 +1145,9 @@ impl ConfigDraft {
 
 /// The main application state
 pub struct App {
+    /// Whether Laravel Sail is detected (commands run through Docker)
+    pub is_sail: bool,
+
     /// Currently active tab
     pub active_tab: Tab,
 
@@ -1169,6 +1206,7 @@ pub struct App {
 impl App {
     pub fn new(working_dir: PathBuf) -> Self {
         Self {
+            is_sail: false,
             active_tab: Tab::default(),
             processes_tab: ProcessesTabState::default(),
             logs_tab: LogsTabState::default(),

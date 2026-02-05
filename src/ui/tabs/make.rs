@@ -41,7 +41,7 @@ fn render_command_list(frame: &mut Frame, area: Rect, app: &App) {
         .as_ref()
         .map(|c| c.make_favorites())
         .unwrap_or(&[]);
-    let commands = app.make_tab.current_command_display(favorites);
+    let commands = app.make_tab.current_command_display(favorites, app.is_sail);
 
     let title = format!(" Make Commands ({}) ", commands.len());
 

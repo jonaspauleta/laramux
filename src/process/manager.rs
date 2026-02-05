@@ -85,6 +85,7 @@ impl ProcessManager {
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
             .current_dir(&config.working_dir)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)

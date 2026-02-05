@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyModifiers};
+use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
 use sysinfo::System;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -72,9 +72,13 @@ async fn run(working_dir: PathBuf) -> Result<()> {
 
     // Initialize app state
     let mut app = App::new(working_dir.clone());
+    app.is_sail = discovery_result.is_sail;
     app.set_config(config);
     if let Some(error) = config_error {
         app.set_config_error(error);
+    }
+    if discovery_result.is_sail {
+        app.set_status("Laravel Sail detected — running in Docker mode");
     }
     app.set_registry(discovery_result.registry);
     app.set_artisan_commands(discovery_result.artisan_commands);
@@ -109,7 +113,7 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                 _ = input_token.cancelled() => break,
                 Some(Ok(event)) = reader.next() => {
                     match event {
-                        CrosstermEvent::Key(key) => {
+                        CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
                             let _ = input_tx.send(Event::Input(key)).await;
                         }
                         CrosstermEvent::Resize(w, h) => {
@@ -914,9 +918,9 @@ async fn handle_artisan_keys(
             }
 
             let user_args = app.artisan_tab.input_buffer.clone();
-            if let Some(resolved) = app
-                .artisan_tab
-                .selected_command_resolved(&user_args, &favorites)
+            if let Some(resolved) =
+                app.artisan_tab
+                    .selected_command_resolved(&user_args, &favorites, app.is_sail)
             {
                 spawn_command(
                     app,
@@ -1050,9 +1054,9 @@ async fn handle_make_keys(
             }
 
             let user_args = app.make_tab.input_buffer.clone();
-            if let Some(resolved) = app
-                .make_tab
-                .selected_command_resolved(&user_args, &favorites)
+            if let Some(resolved) =
+                app.make_tab
+                    .selected_command_resolved(&user_args, &favorites, app.is_sail)
             {
                 spawn_command(
                     app,

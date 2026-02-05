@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 
@@ -20,6 +20,7 @@ pub struct QualityTool {
 
 /// Result of service discovery
 pub struct DiscoveryResult {
+    pub is_sail: bool,
     pub configs: Vec<ProcessConfig>,
     pub registry: ProcessRegistry,
     pub artisan_commands: Vec<FullArtisanCommand>,
@@ -83,6 +84,11 @@ fn is_herd_installed() -> bool {
     }
 }
 
+/// Check if Laravel Sail is present in the project
+fn is_sail_project(working_dir: &Path) -> bool {
+    working_dir.join("vendor/bin/sail").exists()
+}
+
 #[derive(Debug, Deserialize)]
 struct ComposerJson {
     require: Option<std::collections::HashMap<String, String>>,
@@ -135,6 +141,12 @@ pub fn discover_services(
     let mut configs = Vec::new();
     let mut registry = ProcessRegistry::new();
 
+    // Detect Laravel Sail (project-level, takes precedence over Herd)
+    let is_sail = match config.and_then(|c| c.sail) {
+        Some(forced) => forced,
+        None => is_sail_project(working_dir),
+    };
+
     // Check for Laravel (composer.json)
     let composer_path = working_dir.join("composer.json");
     if !composer_path.exists() {
@@ -162,8 +174,9 @@ pub fn discover_services(
     // Helper to check if a process is disabled
     let is_disabled = |name: &str| config.map(|c| c.is_disabled(name)).unwrap_or(false);
 
-    // Add artisan serve (unless Laravel Herd is handling it or disabled)
-    if !is_herd_installed() && !is_disabled("serve") {
+    // Add artisan serve (unless Sail handles it, Herd is installed, or disabled)
+    // Sail manages its own web server via Docker, so serve is not needed.
+    if !is_sail && !is_herd_installed() && !is_disabled("serve") {
         let serve_config = ProcessConfig::new(ProcessKind::Serve, "php", working_dir.to_path_buf())
             .with_args(vec!["artisan".to_string(), "serve".to_string()]);
         configs.push(apply_overrides(
@@ -188,9 +201,17 @@ pub fn discover_services(
 
     // Use Horizon if installed, otherwise fall back to basic queue:work
     if has_horizon && !is_disabled("horizon") {
+        let (cmd, args) = if is_sail {
+            (
+                "./vendor/bin/sail",
+                vec!["artisan".to_string(), "horizon".to_string()],
+            )
+        } else {
+            ("php", vec!["artisan".to_string(), "horizon".to_string()])
+        };
         let horizon_config =
-            ProcessConfig::new(ProcessKind::Horizon, "php", working_dir.to_path_buf())
-                .with_args(vec!["artisan".to_string(), "horizon".to_string()]);
+            ProcessConfig::new(ProcessKind::Horizon, cmd, working_dir.to_path_buf())
+                .with_args(args);
         configs.push(apply_overrides(
             horizon_config,
             ProcessKind::Horizon,
@@ -198,12 +219,27 @@ pub fn discover_services(
             working_dir,
         ));
     } else if !is_disabled("queue") {
-        let queue_config = ProcessConfig::new(ProcessKind::Queue, "php", working_dir.to_path_buf())
-            .with_args(vec![
-                "artisan".to_string(),
-                "queue:work".to_string(),
-                "--tries=3".to_string(),
-            ]);
+        let (cmd, args) = if is_sail {
+            (
+                "./vendor/bin/sail",
+                vec![
+                    "artisan".to_string(),
+                    "queue:work".to_string(),
+                    "--tries=3".to_string(),
+                ],
+            )
+        } else {
+            (
+                "php",
+                vec![
+                    "artisan".to_string(),
+                    "queue:work".to_string(),
+                    "--tries=3".to_string(),
+                ],
+            )
+        };
+        let queue_config =
+            ProcessConfig::new(ProcessKind::Queue, cmd, working_dir.to_path_buf()).with_args(args);
         configs.push(apply_overrides(
             queue_config,
             ProcessKind::Queue,
@@ -225,9 +261,19 @@ pub fn discover_services(
             .unwrap_or(false);
 
     if has_reverb && !is_disabled("reverb") {
+        let (cmd, args) = if is_sail {
+            (
+                "./vendor/bin/sail",
+                vec!["artisan".to_string(), "reverb:start".to_string()],
+            )
+        } else {
+            (
+                "php",
+                vec!["artisan".to_string(), "reverb:start".to_string()],
+            )
+        };
         let reverb_config =
-            ProcessConfig::new(ProcessKind::Reverb, "php", working_dir.to_path_buf())
-                .with_args(vec!["artisan".to_string(), "reverb:start".to_string()]);
+            ProcessConfig::new(ProcessKind::Reverb, cmd, working_dir.to_path_buf()).with_args(args);
         configs.push(apply_overrides(
             reverb_config,
             ProcessKind::Reverb,
@@ -261,26 +307,24 @@ pub fn discover_services(
 
         if has_vite && has_dev_script {
             // Detect package manager
-            let npm_lock = working_dir.join("package-lock.json");
-            let yarn_lock = working_dir.join("yarn.lock");
-            let pnpm_lock = working_dir.join("pnpm-lock.yaml");
-            let bun_lock = working_dir.join("bun.lockb");
+            let pkg_manager = detect_package_manager(working_dir);
 
-            let (cmd, args) = if bun_lock.exists() {
-                ("bun", vec!["run".to_string(), "dev".to_string()])
-            } else if pnpm_lock.exists() {
-                ("pnpm", vec!["run".to_string(), "dev".to_string()])
-            } else if yarn_lock.exists() {
-                ("yarn", vec!["dev".to_string()])
-            } else if npm_lock.exists() {
-                ("npm", vec!["run".to_string(), "dev".to_string()])
+            let (cmd, args) = if is_sail {
+                let sail_args = if pkg_manager == "yarn" {
+                    vec![pkg_manager.clone(), "dev".to_string()]
+                } else {
+                    vec![pkg_manager.clone(), "run".to_string(), "dev".to_string()]
+                };
+                ("./vendor/bin/sail".to_string(), sail_args)
+            } else if pkg_manager == "yarn" {
+                (pkg_manager, vec!["dev".to_string()])
             } else {
-                // Default to npm
-                ("npm", vec!["run".to_string(), "dev".to_string()])
+                (pkg_manager, vec!["run".to_string(), "dev".to_string()])
             };
 
-            let vite_config = ProcessConfig::new(ProcessKind::Vite, cmd, working_dir.to_path_buf())
-                .with_args(args);
+            let vite_config =
+                ProcessConfig::new(ProcessKind::Vite, &cmd, working_dir.to_path_buf())
+                    .with_args(args);
             configs.push(apply_overrides(
                 vite_config,
                 ProcessKind::Vite,
@@ -325,10 +369,10 @@ pub fn discover_services(
     }
 
     // Discover all artisan commands
-    let artisan_commands = discover_all_artisan_commands(working_dir);
+    let artisan_commands = discover_all_artisan_commands(working_dir, is_sail);
 
     // Discover artisan make commands
-    let artisan_make_commands = discover_artisan_make_commands(working_dir);
+    let artisan_make_commands = discover_artisan_make_commands(working_dir, is_sail);
 
     // Load package.json if it exists
     let package_path = working_dir.join("package.json");
@@ -345,7 +389,7 @@ pub fn discover_services(
 
     // Discover quality and testing tools from composer.json and package.json
     let (mut quality_tools, mut testing_tools) =
-        discover_dev_tools(&composer, package.as_ref(), &package_manager);
+        discover_dev_tools(&composer, package.as_ref(), &package_manager, is_sail);
 
     // Apply quality config: filter disabled tools, merge default args, add custom tools
     if let Some(cfg) = config {
@@ -380,6 +424,7 @@ pub fn discover_services(
     }
 
     Ok(DiscoveryResult {
+        is_sail,
         configs,
         registry,
         artisan_commands,
@@ -411,6 +456,7 @@ fn discover_dev_tools(
     composer: &ComposerJson,
     package: Option<&PackageJson>,
     package_manager: &str,
+    is_sail: bool,
 ) -> (Vec<QualityTool>, Vec<QualityTool>) {
     let mut quality_tools = Vec::new();
     let mut testing_tools = Vec::new();
@@ -431,54 +477,100 @@ fn discover_dev_tools(
         )
         .collect();
 
+    // Helper to create a PHP vendor tool, wrapping with Sail if needed
+    let php_tool = |display_name: &str, bin: &str, args: Vec<String>| -> QualityTool {
+        if is_sail {
+            let mut sail_args = vec!["php".to_string(), bin.to_string()];
+            sail_args.extend(args);
+            QualityTool {
+                display_name: display_name.to_string(),
+                command: "./vendor/bin/sail".to_string(),
+                args: sail_args,
+            }
+        } else {
+            QualityTool {
+                display_name: display_name.to_string(),
+                command: bin.to_string(),
+                args,
+            }
+        }
+    };
+
     // PHP Quality tools
     if all_deps.contains("phpstan/phpstan") || all_deps.contains("larastan/larastan") {
-        quality_tools.push(QualityTool {
-            display_name: "PHPStan".to_string(),
-            command: "./vendor/bin/phpstan".to_string(),
-            args: vec!["analyse".to_string(), "--ansi".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "PHPStan",
+            "./vendor/bin/phpstan",
+            vec!["analyse".to_string(), "--ansi".to_string()],
+        ));
     }
 
     if all_deps.contains("laravel/pint") {
-        quality_tools.push(QualityTool {
-            display_name: "Pint".to_string(),
-            command: "./vendor/bin/pint".to_string(),
-            args: vec!["--ansi".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "Pint",
+            "./vendor/bin/pint",
+            vec!["--ansi".to_string()],
+        ));
     }
 
     if all_deps.contains("friendsofphp/php-cs-fixer") {
-        quality_tools.push(QualityTool {
-            display_name: "PHP CS Fixer".to_string(),
-            command: "./vendor/bin/php-cs-fixer".to_string(),
-            args: vec!["fix".to_string(), "--ansi".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "PHP CS Fixer",
+            "./vendor/bin/php-cs-fixer",
+            vec!["fix".to_string(), "--ansi".to_string()],
+        ));
     }
 
     if all_deps.contains("rector/rector") || all_deps.contains("rectorphp/rector") {
-        quality_tools.push(QualityTool {
-            display_name: "Rector".to_string(),
-            command: "./vendor/bin/rector".to_string(),
-            args: vec!["--ansi".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "Rector",
+            "./vendor/bin/rector",
+            vec!["--ansi".to_string()],
+        ));
     }
 
     if all_deps.contains("squizlabs/php_codesniffer") {
-        quality_tools.push(QualityTool {
-            display_name: "PHP_CodeSniffer".to_string(),
-            command: "./vendor/bin/phpcs".to_string(),
-            args: vec!["--colors".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "PHP_CodeSniffer",
+            "./vendor/bin/phpcs",
+            vec!["--colors".to_string()],
+        ));
     }
 
     if all_deps.contains("vimeo/psalm") {
-        quality_tools.push(QualityTool {
-            display_name: "Psalm".to_string(),
-            command: "./vendor/bin/psalm".to_string(),
-            args: vec!["--output-format=console".to_string()],
-        });
+        quality_tools.push(php_tool(
+            "Psalm",
+            "./vendor/bin/psalm",
+            vec!["--output-format=console".to_string()],
+        ));
     }
+
+    // Helper to create a JS script tool, wrapping with Sail if needed
+    let js_tool = |display_name: &str, script_name: &str| -> QualityTool {
+        if is_sail {
+            let mut sail_args = vec![package_manager.to_string()];
+            if package_manager != "yarn" {
+                sail_args.push("run".to_string());
+            }
+            sail_args.push(script_name.to_string());
+            QualityTool {
+                display_name: display_name.to_string(),
+                command: "./vendor/bin/sail".to_string(),
+                args: sail_args,
+            }
+        } else {
+            let args = if package_manager == "yarn" {
+                vec![script_name.to_string()]
+            } else {
+                vec!["run".to_string(), script_name.to_string()]
+            };
+            QualityTool {
+                display_name: display_name.to_string(),
+                command: package_manager.to_string(),
+                args,
+            }
+        }
+    };
 
     // NPM/PNPM/Yarn/Bun scripts from package.json
     if let Some(pkg) = package {
@@ -497,16 +589,7 @@ fn discover_dev_tools(
 
             for (script_name, display_name) in quality_scripts {
                 if scripts.contains_key(script_name) {
-                    let args = if package_manager == "yarn" {
-                        vec![script_name.to_string()]
-                    } else {
-                        vec!["run".to_string(), script_name.to_string()]
-                    };
-                    quality_tools.push(QualityTool {
-                        display_name: display_name.to_string(),
-                        command: package_manager.to_string(),
-                        args,
-                    });
+                    quality_tools.push(js_tool(display_name, script_name));
                 }
             }
 
@@ -520,16 +603,7 @@ fn discover_dev_tools(
 
             for (script_name, display_name) in test_scripts {
                 if scripts.contains_key(script_name) {
-                    let args = if package_manager == "yarn" {
-                        vec![script_name.to_string()]
-                    } else {
-                        vec!["run".to_string(), script_name.to_string()]
-                    };
-                    testing_tools.push(QualityTool {
-                        display_name: display_name.to_string(),
-                        command: package_manager.to_string(),
-                        args,
-                    });
+                    testing_tools.push(js_tool(display_name, script_name));
                 }
             }
         }
@@ -537,41 +611,53 @@ fn discover_dev_tools(
 
     // PHP Testing tools
     if all_deps.contains("pestphp/pest") {
-        testing_tools.push(QualityTool {
-            display_name: "Pest".to_string(),
-            command: "./vendor/bin/pest".to_string(),
-            args: vec!["--colors=always".to_string()],
-        });
-        testing_tools.push(QualityTool {
-            display_name: "Pest Coverage".to_string(),
-            command: "./vendor/bin/pest".to_string(),
-            args: vec!["--coverage".to_string(), "--colors=always".to_string()],
-        });
+        testing_tools.push(php_tool(
+            "Pest",
+            "./vendor/bin/pest",
+            vec!["--colors=always".to_string()],
+        ));
+        testing_tools.push(php_tool(
+            "Pest Coverage",
+            "./vendor/bin/pest",
+            vec!["--coverage".to_string(), "--colors=always".to_string()],
+        ));
     } else if all_deps.contains("phpunit/phpunit") {
-        testing_tools.push(QualityTool {
-            display_name: "PHPUnit".to_string(),
-            command: "./vendor/bin/phpunit".to_string(),
-            args: vec!["--colors=always".to_string()],
-        });
+        testing_tools.push(php_tool(
+            "PHPUnit",
+            "./vendor/bin/phpunit",
+            vec!["--colors=always".to_string()],
+        ));
     }
 
     // Laravel's artisan test is always available
-    testing_tools.push(QualityTool {
-        display_name: "Artisan Test".to_string(),
-        command: "php".to_string(),
-        args: vec![
-            "artisan".to_string(),
-            "test".to_string(),
-            "--ansi".to_string(),
-        ],
-    });
+    if is_sail {
+        testing_tools.push(QualityTool {
+            display_name: "Artisan Test".to_string(),
+            command: "./vendor/bin/sail".to_string(),
+            args: vec![
+                "artisan".to_string(),
+                "test".to_string(),
+                "--ansi".to_string(),
+            ],
+        });
+    } else {
+        testing_tools.push(QualityTool {
+            display_name: "Artisan Test".to_string(),
+            command: "php".to_string(),
+            args: vec![
+                "artisan".to_string(),
+                "test".to_string(),
+                "--ansi".to_string(),
+            ],
+        });
+    }
 
     if all_deps.contains("brianium/paratest") {
-        testing_tools.push(QualityTool {
-            display_name: "Paratest".to_string(),
-            command: "./vendor/bin/paratest".to_string(),
-            args: vec!["--colors".to_string()],
-        });
+        testing_tools.push(php_tool(
+            "Paratest",
+            "./vendor/bin/paratest",
+            vec!["--colors".to_string()],
+        ));
     }
 
     (quality_tools, testing_tools)
@@ -685,12 +771,21 @@ pub struct FullArtisanCommand {
 }
 
 /// Discover available artisan make:* commands with full details
-fn discover_artisan_make_commands(working_dir: &Path) -> Vec<FullArtisanCommand> {
-    // Run php artisan list make --format=json
-    let output = Command::new("php")
-        .args(["artisan", "list", "make", "--format=json"])
-        .current_dir(working_dir)
-        .output();
+fn discover_artisan_make_commands(working_dir: &Path, is_sail: bool) -> Vec<FullArtisanCommand> {
+    // Run php artisan list make --format=json (or via Sail)
+    let output = if is_sail {
+        Command::new("./vendor/bin/sail")
+            .args(["artisan", "list", "make", "--format=json"])
+            .current_dir(working_dir)
+            .stdin(Stdio::null())
+            .output()
+    } else {
+        Command::new("php")
+            .args(["artisan", "list", "make", "--format=json"])
+            .current_dir(working_dir)
+            .stdin(Stdio::null())
+            .output()
+    };
 
     let output = match output {
         Ok(o) if o.status.success() => o,
@@ -799,12 +894,21 @@ fn discover_artisan_make_commands(working_dir: &Path) -> Vec<FullArtisanCommand>
 }
 
 /// Discover all artisan commands (excluding make:* which are handled separately)
-fn discover_all_artisan_commands(working_dir: &Path) -> Vec<FullArtisanCommand> {
-    // Run php artisan list --format=json
-    let output = Command::new("php")
-        .args(["artisan", "list", "--format=json"])
-        .current_dir(working_dir)
-        .output();
+fn discover_all_artisan_commands(working_dir: &Path, is_sail: bool) -> Vec<FullArtisanCommand> {
+    // Run php artisan list --format=json (or via Sail)
+    let output = if is_sail {
+        Command::new("./vendor/bin/sail")
+            .args(["artisan", "list", "--format=json"])
+            .current_dir(working_dir)
+            .stdin(Stdio::null())
+            .output()
+    } else {
+        Command::new("php")
+            .args(["artisan", "list", "--format=json"])
+            .current_dir(working_dir)
+            .stdin(Stdio::null())
+            .output()
+    };
 
     let output = match output {
         Ok(o) if o.status.success() => o,

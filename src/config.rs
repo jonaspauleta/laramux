@@ -146,6 +146,9 @@ pub struct LogConfig {
 /// Main configuration structure
 #[derive(Debug, Default, Deserialize, serde::Serialize)]
 pub struct LaramuxConfig {
+    /// Override Sail auto-detection: None = auto-detect, Some(true) = force, Some(false) = disable
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sail: Option<bool>,
     #[serde(default, skip_serializing_if = "is_default_disabled")]
     pub disabled: DisabledConfig,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
