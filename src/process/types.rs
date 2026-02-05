@@ -167,6 +167,7 @@ pub enum ProcessStatus {
     Running,
     Restarting,
     Failed,
+    Supervised,
 }
 
 impl ProcessStatus {
@@ -176,6 +177,7 @@ impl ProcessStatus {
             ProcessStatus::Stopped => "⚫",
             ProcessStatus::Restarting => "🟡",
             ProcessStatus::Failed => "🔴",
+            ProcessStatus::Supervised => "🔵",
         }
     }
 }
@@ -189,6 +191,8 @@ pub struct ProcessConfig {
     pub working_dir: PathBuf,
     pub env: HashMap<String, String>,
     pub restart_policy: RestartPolicy,
+    pub supervised: bool,
+    pub supervisor_program: Option<String>,
 }
 
 impl ProcessConfig {
@@ -200,6 +204,8 @@ impl ProcessConfig {
             working_dir,
             env: HashMap::new(),
             restart_policy: RestartPolicy::default(),
+            supervised: false,
+            supervisor_program: None,
         }
     }
 
@@ -215,6 +221,12 @@ impl ProcessConfig {
 
     pub fn with_restart_policy(mut self, policy: RestartPolicy) -> Self {
         self.restart_policy = policy;
+        self
+    }
+
+    pub fn with_supervised(mut self, program_name: String) -> Self {
+        self.supervised = true;
+        self.supervisor_program = Some(program_name);
         self
     }
 }
@@ -291,5 +303,9 @@ impl Process {
     pub fn clear_output(&mut self) {
         self.output.clear();
         self.scroll_offset = 0;
+    }
+
+    pub fn is_supervised(&self) -> bool {
+        self.config.supervised
     }
 }

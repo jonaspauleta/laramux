@@ -186,11 +186,20 @@ impl ProcessManager {
         self.children.insert(id.clone(), child);
 
         // Send initial status via event
+        let initial_msg = if config.supervised {
+            format!(
+                "Tailing supervisor logs for {} (PID: {:?})",
+                config.supervisor_program.as_deref().unwrap_or("unknown"),
+                pid
+            )
+        } else {
+            format!("Started {} (PID: {:?})", id, pid)
+        };
         let _ = self
             .event_tx
             .send(Event::ProcessOutput {
                 id: id.clone(),
-                line: format!("Started {} (PID: {:?})", id, pid),
+                line: initial_msg,
                 is_stderr: false,
             })
             .await;
@@ -329,6 +338,11 @@ impl ProcessManager {
             return false;
         };
 
+        // Supervised processes are managed by supervisor — never auto-restart
+        if config.supervised {
+            return false;
+        }
+
         match config.restart_policy {
             RestartPolicy::Never => false,
             RestartPolicy::OnFailure => {
@@ -337,6 +351,11 @@ impl ProcessManager {
             }
             RestartPolicy::Always => true,
         }
+    }
+
+    /// Check if a process is supervised (managed by Docker supervisor)
+    pub fn is_supervised(&self, id: &ProcessId) -> bool {
+        self.configs.get(id).map(|c| c.supervised).unwrap_or(false)
     }
 
     /// Get the restart policy for a process

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -27,6 +28,7 @@ pub struct DiscoveryResult {
     pub artisan_make_commands: Vec<FullArtisanCommand>,
     pub quality_tools: Vec<QualityTool>,
     pub testing_tools: Vec<QualityTool>,
+    pub supervised_kinds: Vec<ProcessKind>,
 }
 
 /// Check if Laravel Herd is installed (macOS or Windows)
@@ -87,6 +89,209 @@ fn is_herd_installed() -> bool {
 /// Check if Laravel Sail is present in the project
 fn is_sail_project(working_dir: &Path) -> bool {
     working_dir.join("vendor/bin/sail").exists()
+}
+
+/// Info about a supervised program parsed from the supervisor config
+struct SupervisedProgram {
+    /// The program name from [program:NAME]
+    name: String,
+    /// The stdout_logfile path (if it points to a real file, not /dev/stdout)
+    log_file: Option<String>,
+}
+
+/// Detect services managed by supervisord inside the Sail container.
+///
+/// Sail's supervisord config typically lacks a [unix_http_server] section, so
+/// `supervisorctl status` won't work. Instead we:
+///   1. Read the supervisor config to find [program:X] sections
+///   2. Map program names to ProcessKind via fuzzy match
+///   3. Extract log file paths for per-program tailing
+///
+/// Returns a map of ProcessKind → SupervisedProgram for detected programs.
+/// Programs are included if they are defined in the config, regardless of
+/// whether they are currently running (supervisor manages their lifecycle).
+fn detect_supervised_services(working_dir: &Path) -> HashMap<ProcessKind, SupervisedProgram> {
+    let mut supervised = HashMap::new();
+
+    // Read the supervisor config inside the container
+    let config_output = Command::new("docker")
+        .args([
+            "compose",
+            "exec",
+            "-T",
+            "laravel.test",
+            "cat",
+            "/etc/supervisor/conf.d/supervisord.conf",
+        ])
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let config_text = match config_output {
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout).ok(),
+        _ => None,
+    };
+
+    let Some(config_text) = config_text else {
+        return supervised;
+    };
+
+    // Parse config: extract [program:NAME] sections with their stdout_logfile
+    let mut current_kind: Option<(ProcessKind, String)> = None;
+    let mut current_log: Option<String> = None;
+
+    let map_name_to_kind = |name: &str| -> Option<ProcessKind> {
+        let lower = name.to_lowercase();
+        if lower.contains("horizon") {
+            Some(ProcessKind::Horizon)
+        } else if lower.contains("reverb") {
+            Some(ProcessKind::Reverb)
+        } else if lower.contains("worker") || lower.contains("queue") {
+            Some(ProcessKind::Queue)
+        } else if lower.contains("vite") {
+            Some(ProcessKind::Vite)
+        } else {
+            None
+        }
+    };
+
+    // Helper to flush the current section
+    let flush = |kind: &mut Option<(ProcessKind, String)>,
+                 log: &mut Option<String>,
+                 map: &mut HashMap<ProcessKind, SupervisedProgram>| {
+        if let Some((k, name)) = kind.take() {
+            map.insert(
+                k,
+                SupervisedProgram {
+                    name,
+                    log_file: log.take(),
+                },
+            );
+        }
+        *log = None;
+    };
+
+    for line in config_text.lines() {
+        let trimmed = line.trim();
+
+        // New section header
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            // Flush previous section
+            flush(&mut current_kind, &mut current_log, &mut supervised);
+
+            // Check if this is a [program:NAME] we care about
+            if trimmed.starts_with("[program:") {
+                let name = &trimmed[9..trimmed.len() - 1];
+                if let Some(kind) = map_name_to_kind(name) {
+                    current_kind = Some((kind, name.to_string()));
+                }
+            }
+            continue;
+        }
+
+        // Parse stdout_logfile within a matched section
+        if current_kind.is_some() && trimmed.starts_with("stdout_logfile=") {
+            let path = trimmed.trim_start_matches("stdout_logfile=").trim();
+            // Only use real file paths, not /dev/stdout
+            if !path.starts_with("/dev/") && path.starts_with('/') {
+                current_log = Some(path.to_string());
+            }
+        }
+    }
+    // Flush last section
+    flush(&mut current_kind, &mut current_log, &mut supervised);
+
+    // If any programs log to /dev/stdout (no per-program log file), automatically
+    // set up per-program log files inside the container
+    let needs_setup: Vec<String> = supervised
+        .iter()
+        .filter(|(_, info)| info.log_file.is_none())
+        .map(|(_, info)| info.name.clone())
+        .collect();
+
+    if !needs_setup.is_empty() && setup_supervised_log_files(working_dir, &needs_setup) {
+        for info in supervised.values_mut() {
+            if info.log_file.is_none() {
+                info.log_file = Some(format!("/var/log/supervisor/{}.log", info.name));
+            }
+        }
+    }
+
+    supervised
+}
+
+/// Set up per-program log files for supervised services that log to /dev/stdout.
+///
+/// Modifies the supervisor config inside the running container to redirect each
+/// program's output to individual log files under /var/log/supervisor/, then
+/// reloads supervisor via SIGHUP. Targeted programs will briefly restart.
+///
+/// Uses a marker file to avoid re-running on subsequent laramux starts within
+/// the same container lifetime.
+fn setup_supervised_log_files(working_dir: &Path, program_names: &[String]) -> bool {
+    if program_names.is_empty() {
+        return true;
+    }
+
+    let targets = program_names.join(",");
+    let touch_files: String = program_names
+        .iter()
+        .map(|n| format!("/var/log/supervisor/{}.log", n))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let script = format!(
+        r#"MARKER="/tmp/.laramux-logging-setup"
+[ -f "$MARKER" ] && exit 0
+mkdir -p /var/log/supervisor
+touch {touch_files}
+CONFIG="/etc/supervisor/conf.d/supervisord.conf"
+grep -q "stdout_logfile=/dev/stdout" "$CONFIG" 2>/dev/null || {{ touch "$MARKER"; exit 0; }}
+awk -v targets="{targets}" '
+BEGIN {{ split(targets, t, ","); for (i in t) target[t[i]] = 1 }}
+/^\[program:/ {{
+    prog = $0; sub(/^\[program:/, "", prog); sub(/\].*/, "", prog)
+    is_target = (prog in target)
+}}
+/^\[/ && !/^\[program:/ {{ is_target = 0 }}
+is_target && /^stdout_logfile=\/dev\/stdout/ {{
+    print "stdout_logfile=/var/log/supervisor/" prog ".log"
+    print "stdout_logfile_maxbytes=10MB"
+    next
+}}
+is_target && /^stderr_logfile=\/dev\/stderr/ {{
+    print "stderr_logfile=/var/log/supervisor/" prog ".log"
+    print "stderr_logfile_maxbytes=0"
+    next
+}}
+is_target && /^stdout_logfile_maxbytes=/ {{ next }}
+is_target && /^stderr_logfile_maxbytes=/ {{ next }}
+{{ print }}
+' "$CONFIG" > "${{CONFIG}}.tmp" && mv "${{CONFIG}}.tmp" "$CONFIG"
+kill -HUP 1
+sleep 1
+touch "$MARKER""#
+    );
+
+    let output = Command::new("docker")
+        .args([
+            "compose",
+            "exec",
+            "-T",
+            "laravel.test",
+            "bash",
+            "-c",
+            &script,
+        ])
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    matches!(output, Ok(ref o) if o.status.success())
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,6 +379,53 @@ pub fn discover_services(
     // Helper to check if a process is disabled
     let is_disabled = |name: &str| config.map(|c| c.is_disabled(name)).unwrap_or(false);
 
+    // Detect supervised services running inside the Sail container
+    let supervised_map = if is_sail {
+        detect_supervised_services(working_dir)
+    } else {
+        HashMap::new()
+    };
+    let mut supervised_kinds: Vec<ProcessKind> = Vec::new();
+
+    // Helper to create a supervised ProcessConfig that tails the program's log file
+    let supervised_config =
+        |kind: ProcessKind, info: &SupervisedProgram, working_dir: &Path| -> ProcessConfig {
+            let (cmd, args) = if let Some(ref log_file) = info.log_file {
+                // Tail the per-program log file inside the container
+                (
+                    "docker",
+                    vec![
+                        "compose".to_string(),
+                        "exec".to_string(),
+                        "-T".to_string(),
+                        "laravel.test".to_string(),
+                        "tail".to_string(),
+                        "-f".to_string(),
+                        "-n".to_string(),
+                        "100".to_string(),
+                        log_file.clone(),
+                    ],
+                )
+            } else {
+                // Fallback: tail combined container logs
+                (
+                    "docker",
+                    vec![
+                        "compose".to_string(),
+                        "logs".to_string(),
+                        "-f".to_string(),
+                        "--tail".to_string(),
+                        "100".to_string(),
+                        "--no-log-prefix".to_string(),
+                        "laravel.test".to_string(),
+                    ],
+                )
+            };
+            ProcessConfig::new(kind, cmd, working_dir.to_path_buf())
+                .with_args(args)
+                .with_supervised(info.name.clone())
+        };
+
     // Add artisan serve (unless Sail handles it, Herd is installed, or disabled)
     // Sail manages its own web server via Docker, so serve is not needed.
     if !is_sail && !is_herd_installed() && !is_disabled("serve") {
@@ -201,51 +453,62 @@ pub fn discover_services(
 
     // Use Horizon if installed, otherwise fall back to basic queue:work
     if has_horizon && !is_disabled("horizon") {
-        let (cmd, args) = if is_sail {
-            (
-                "./vendor/bin/sail",
-                vec!["artisan".to_string(), "horizon".to_string()],
-            )
+        if let Some(info) = supervised_map.get(&ProcessKind::Horizon) {
+            configs.push(supervised_config(ProcessKind::Horizon, info, working_dir));
+            supervised_kinds.push(ProcessKind::Horizon);
         } else {
-            ("php", vec!["artisan".to_string(), "horizon".to_string()])
-        };
-        let horizon_config =
-            ProcessConfig::new(ProcessKind::Horizon, cmd, working_dir.to_path_buf())
-                .with_args(args);
-        configs.push(apply_overrides(
-            horizon_config,
-            ProcessKind::Horizon,
-            config,
-            working_dir,
-        ));
+            let (cmd, args) = if is_sail {
+                (
+                    "./vendor/bin/sail",
+                    vec!["artisan".to_string(), "horizon".to_string()],
+                )
+            } else {
+                ("php", vec!["artisan".to_string(), "horizon".to_string()])
+            };
+            let horizon_config =
+                ProcessConfig::new(ProcessKind::Horizon, cmd, working_dir.to_path_buf())
+                    .with_args(args);
+            configs.push(apply_overrides(
+                horizon_config,
+                ProcessKind::Horizon,
+                config,
+                working_dir,
+            ));
+        }
     } else if !is_disabled("queue") {
-        let (cmd, args) = if is_sail {
-            (
-                "./vendor/bin/sail",
-                vec![
-                    "artisan".to_string(),
-                    "queue:work".to_string(),
-                    "--tries=3".to_string(),
-                ],
-            )
+        if let Some(info) = supervised_map.get(&ProcessKind::Queue) {
+            configs.push(supervised_config(ProcessKind::Queue, info, working_dir));
+            supervised_kinds.push(ProcessKind::Queue);
         } else {
-            (
-                "php",
-                vec![
-                    "artisan".to_string(),
-                    "queue:work".to_string(),
-                    "--tries=3".to_string(),
-                ],
-            )
-        };
-        let queue_config =
-            ProcessConfig::new(ProcessKind::Queue, cmd, working_dir.to_path_buf()).with_args(args);
-        configs.push(apply_overrides(
-            queue_config,
-            ProcessKind::Queue,
-            config,
-            working_dir,
-        ));
+            let (cmd, args) = if is_sail {
+                (
+                    "./vendor/bin/sail",
+                    vec![
+                        "artisan".to_string(),
+                        "queue:work".to_string(),
+                        "--tries=3".to_string(),
+                    ],
+                )
+            } else {
+                (
+                    "php",
+                    vec![
+                        "artisan".to_string(),
+                        "queue:work".to_string(),
+                        "--tries=3".to_string(),
+                    ],
+                )
+            };
+            let queue_config =
+                ProcessConfig::new(ProcessKind::Queue, cmd, working_dir.to_path_buf())
+                    .with_args(args);
+            configs.push(apply_overrides(
+                queue_config,
+                ProcessKind::Queue,
+                config,
+                working_dir,
+            ));
+        }
     }
 
     // Check for Reverb (Laravel Reverb websocket server)
@@ -261,25 +524,31 @@ pub fn discover_services(
             .unwrap_or(false);
 
     if has_reverb && !is_disabled("reverb") {
-        let (cmd, args) = if is_sail {
-            (
-                "./vendor/bin/sail",
-                vec!["artisan".to_string(), "reverb:start".to_string()],
-            )
+        if let Some(info) = supervised_map.get(&ProcessKind::Reverb) {
+            configs.push(supervised_config(ProcessKind::Reverb, info, working_dir));
+            supervised_kinds.push(ProcessKind::Reverb);
         } else {
-            (
-                "php",
-                vec!["artisan".to_string(), "reverb:start".to_string()],
-            )
-        };
-        let reverb_config =
-            ProcessConfig::new(ProcessKind::Reverb, cmd, working_dir.to_path_buf()).with_args(args);
-        configs.push(apply_overrides(
-            reverb_config,
-            ProcessKind::Reverb,
-            config,
-            working_dir,
-        ));
+            let (cmd, args) = if is_sail {
+                (
+                    "./vendor/bin/sail",
+                    vec!["artisan".to_string(), "reverb:start".to_string()],
+                )
+            } else {
+                (
+                    "php",
+                    vec!["artisan".to_string(), "reverb:start".to_string()],
+                )
+            };
+            let reverb_config =
+                ProcessConfig::new(ProcessKind::Reverb, cmd, working_dir.to_path_buf())
+                    .with_args(args);
+            configs.push(apply_overrides(
+                reverb_config,
+                ProcessKind::Reverb,
+                config,
+                working_dir,
+            ));
+        }
     }
 
     // Check for Vite (package.json)
@@ -306,31 +575,36 @@ pub fn discover_services(
             .unwrap_or(false);
 
         if has_vite && has_dev_script {
-            // Detect package manager
-            let pkg_manager = detect_package_manager(working_dir);
-
-            let (cmd, args) = if is_sail {
-                let sail_args = if pkg_manager == "yarn" {
-                    vec![pkg_manager.clone(), "dev".to_string()]
-                } else {
-                    vec![pkg_manager.clone(), "run".to_string(), "dev".to_string()]
-                };
-                ("./vendor/bin/sail".to_string(), sail_args)
-            } else if pkg_manager == "yarn" {
-                (pkg_manager, vec!["dev".to_string()])
+            if let Some(program) = supervised_map.get(&ProcessKind::Vite) {
+                configs.push(supervised_config(ProcessKind::Vite, program, working_dir));
+                supervised_kinds.push(ProcessKind::Vite);
             } else {
-                (pkg_manager, vec!["run".to_string(), "dev".to_string()])
-            };
+                // Detect package manager
+                let pkg_manager = detect_package_manager(working_dir);
 
-            let vite_config =
-                ProcessConfig::new(ProcessKind::Vite, &cmd, working_dir.to_path_buf())
-                    .with_args(args);
-            configs.push(apply_overrides(
-                vite_config,
-                ProcessKind::Vite,
-                config,
-                working_dir,
-            ));
+                let (cmd, args) = if is_sail {
+                    let sail_args = if pkg_manager == "yarn" {
+                        vec![pkg_manager.clone(), "dev".to_string()]
+                    } else {
+                        vec![pkg_manager.clone(), "run".to_string(), "dev".to_string()]
+                    };
+                    ("./vendor/bin/sail".to_string(), sail_args)
+                } else if pkg_manager == "yarn" {
+                    (pkg_manager, vec!["dev".to_string()])
+                } else {
+                    (pkg_manager, vec!["run".to_string(), "dev".to_string()])
+                };
+
+                let vite_config =
+                    ProcessConfig::new(ProcessKind::Vite, &cmd, working_dir.to_path_buf())
+                        .with_args(args);
+                configs.push(apply_overrides(
+                    vite_config,
+                    ProcessKind::Vite,
+                    config,
+                    working_dir,
+                ));
+            }
         }
     }
 
@@ -431,6 +705,7 @@ pub fn discover_services(
         artisan_make_commands,
         quality_tools,
         testing_tools,
+        supervised_kinds,
     })
 }
 

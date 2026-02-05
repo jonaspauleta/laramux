@@ -78,7 +78,19 @@ async fn run(working_dir: PathBuf) -> Result<()> {
         app.set_config_error(error);
     }
     if discovery_result.is_sail {
-        app.set_status("Laravel Sail detected — running in Docker mode");
+        if discovery_result.supervised_kinds.is_empty() {
+            app.set_status("Laravel Sail detected — running in Docker mode");
+        } else {
+            let names: Vec<&str> = discovery_result
+                .supervised_kinds
+                .iter()
+                .map(|k| k.display_name())
+                .collect();
+            app.set_status(format!(
+                "Laravel Sail detected — {} supervised",
+                names.join(", ")
+            ));
+        }
     }
     app.set_registry(discovery_result.registry);
     app.set_artisan_commands(discovery_result.artisan_commands);
@@ -215,7 +227,11 @@ async fn run(working_dir: PathBuf) -> Result<()> {
     // Update initial status
     for id in app.process_order.clone() {
         if process_manager.is_running(&id) {
-            app.set_process_status(&id, ProcessStatus::Running);
+            if process_manager.is_supervised(&id) {
+                app.set_process_status(&id, ProcessStatus::Supervised);
+            } else {
+                app.set_process_status(&id, ProcessStatus::Running);
+            }
             app.set_process_pid(&id, process_manager.get_pid(&id));
         } else {
             // Check if this process had a spawn error
@@ -288,7 +304,10 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                     app.add_process_output(&id, line, is_stderr);
                 }
                 Event::ProcessExited { id, exit_code } => {
-                    let status = if exit_code == Some(0) {
+                    let status = if process_manager.is_supervised(&id) {
+                        // Supervised: log tail ending is normal, always Stopped
+                        ProcessStatus::Stopped
+                    } else if exit_code == Some(0) {
                         ProcessStatus::Stopped
                     } else {
                         ProcessStatus::Failed
@@ -337,7 +356,11 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                         app.set_status(format!("Failed to restart {}: {}", display_name, e));
                         app.set_process_status(&id, ProcessStatus::Failed);
                     } else {
-                        app.set_process_status(&id, ProcessStatus::Running);
+                        if process_manager.is_supervised(&id) {
+                            app.set_process_status(&id, ProcessStatus::Supervised);
+                        } else {
+                            app.set_process_status(&id, ProcessStatus::Running);
+                        }
                         app.set_process_pid(&id, process_manager.get_pid(&id));
                         app.clear_status();
                     }
@@ -400,11 +423,15 @@ async fn run(working_dir: PathBuf) -> Result<()> {
                             .map(|p| p.status)
                             .unwrap_or(ProcessStatus::Stopped);
 
-                        if !matches!(current_status, ProcessStatus::Restarting)
-                            && is_running
-                            && current_status != ProcessStatus::Running
-                        {
-                            app.set_process_status(&id, ProcessStatus::Running);
+                        if !matches!(current_status, ProcessStatus::Restarting) && is_running {
+                            let expected = if process_manager.is_supervised(&id) {
+                                ProcessStatus::Supervised
+                            } else {
+                                ProcessStatus::Running
+                            };
+                            if current_status != expected {
+                                app.set_process_status(&id, expected);
+                            }
                         }
                     }
                 }
@@ -687,34 +714,53 @@ async fn handle_processes_keys(
                     app.processes_tab.toggle_view();
                 }
                 KeyCode::Char('s') => {
-                    // Start selected process
+                    // Start selected process (or tail logs for supervised)
                     if let Some(id) = app.selected_id().cloned() {
                         let display_name = app.registry.display_name(&id);
-                        app.set_status(format!("Starting {}...", display_name));
+                        let is_sup = process_manager.is_supervised(&id);
+                        if is_sup {
+                            app.set_status(format!("Tailing logs for {}...", display_name));
+                        } else {
+                            app.set_status(format!("Starting {}...", display_name));
+                        }
                         let _ = process_manager.spawn(&id).await;
-                        app.set_process_status(&id, ProcessStatus::Running);
+                        if is_sup {
+                            app.set_process_status(&id, ProcessStatus::Supervised);
+                        } else {
+                            app.set_process_status(&id, ProcessStatus::Running);
+                        }
                         app.set_process_pid(&id, process_manager.get_pid(&id));
                         app.clear_status();
                     }
                 }
                 KeyCode::Char('x') => {
-                    // Stop selected process
+                    // Stop selected process (or detach for supervised)
                     if let Some(id) = app.selected_id().cloned() {
                         let display_name = app.registry.display_name(&id);
-                        app.set_status(format!("Stopping {}...", display_name));
+                        if process_manager.is_supervised(&id) {
+                            app.set_status(format!("Detaching from {}...", display_name));
+                        } else {
+                            app.set_status(format!("Stopping {}...", display_name));
+                        }
                         let _ = process_manager.kill(&id).await;
                         app.set_process_status(&id, ProcessStatus::Stopped);
                         app.clear_status();
                     }
                 }
                 KeyCode::Char('r') => {
-                    // Restart selected process
+                    // Restart selected process (or reconnect for supervised)
                     if let Some(id) = app.selected_id().cloned() {
                         let display_name = app.registry.display_name(&id);
-                        app.set_status(format!("Restarting {}...", display_name));
+                        if process_manager.is_supervised(&id) {
+                            app.set_status(format!("Reconnecting to {}...", display_name));
+                        } else {
+                            app.set_status(format!("Restarting {}...", display_name));
+                        }
                         app.set_process_status(&id, ProcessStatus::Restarting);
                         let _ = process_manager.restart(&id).await;
-                        // Status will be updated by tick event when process is running
+                        if process_manager.is_supervised(&id) {
+                            app.set_process_status(&id, ProcessStatus::Supervised);
+                        }
                         app.clear_status();
                     }
                 }

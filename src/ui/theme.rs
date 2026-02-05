@@ -14,6 +14,7 @@ pub mod symbols {
     pub const STOPPED: &str = "○";
     pub const RESTARTING: &str = "↻";
     pub const FAILED: &str = "✗";
+    pub const SUPERVISED: &str = "◆";
     pub const SELECTOR: &str = "▶";
 }
 
@@ -94,6 +95,9 @@ impl Theme {
             .border_style(Style::default().fg(Self::BORDER_FOCUSED))
     }
 
+    /// Supervised status color — blue
+    pub const SUPERVISED: Color = Color::Rgb(96, 165, 250);
+
     /// Returns the status symbol for a process status
     pub fn status_symbol(status: ProcessStatus) -> &'static str {
         match status {
@@ -101,6 +105,7 @@ impl Theme {
             ProcessStatus::Stopped => symbols::STOPPED,
             ProcessStatus::Restarting => symbols::RESTARTING,
             ProcessStatus::Failed => symbols::FAILED,
+            ProcessStatus::Supervised => symbols::SUPERVISED,
         }
     }
 
@@ -111,6 +116,7 @@ impl Theme {
             ProcessStatus::Stopped => Style::default().fg(Self::TEXT_MUTED),
             ProcessStatus::Restarting => Style::default().fg(Self::WARNING),
             ProcessStatus::Failed => Style::default().fg(Self::ERROR),
+            ProcessStatus::Supervised => Style::default().fg(Self::SUPERVISED),
         }
     }
 
@@ -120,6 +126,7 @@ impl Theme {
             ProcessStatus::Running => Some("running"),
             ProcessStatus::Restarting => Some("restarting..."),
             ProcessStatus::Failed => Some("failed"),
+            ProcessStatus::Supervised => Some("supervised"),
             ProcessStatus::Stopped => None,
         }
     }

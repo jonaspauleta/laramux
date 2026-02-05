@@ -55,8 +55,14 @@ fn render_list_view(frame: &mut Frame, area: Rect, app: &App) {
             ));
 
             // Process name
+            let is_supervised = process.map(|p| p.is_supervised()).unwrap_or(false);
+            let name_label = if is_supervised {
+                format!("{:<12}", format!("{} [sup]", display_name))
+            } else {
+                format!("{:<12}", display_name)
+            };
             spans.push(Span::styled(
-                format!("{:<12}", display_name),
+                name_label,
                 if is_selected {
                     Style::default()
                         .fg(Theme::TEXT)
@@ -67,7 +73,7 @@ fn render_list_view(frame: &mut Frame, area: Rect, app: &App) {
             ));
 
             // CPU/RAM stats for running processes
-            if status == ProcessStatus::Running {
+            if status == ProcessStatus::Running || status == ProcessStatus::Supervised {
                 if let Some(stats) = process_stats {
                     let cpu_str = format!("{:>5.1}%", stats.cpu_usage);
                     let mem_mb = stats.memory_bytes as f64 / 1024.0 / 1024.0;
@@ -93,7 +99,14 @@ fn render_list_view(frame: &mut Frame, area: Rect, app: &App) {
             // Action hints
             let action_hint = match status {
                 ProcessStatus::Running => "[x]stop [r]restart",
-                ProcessStatus::Stopped | ProcessStatus::Failed => "[s]start",
+                ProcessStatus::Supervised => "[x]detach [r]reconnect",
+                ProcessStatus::Stopped | ProcessStatus::Failed => {
+                    if is_supervised {
+                        "[s]tail logs"
+                    } else {
+                        "[s]start"
+                    }
+                }
                 ProcessStatus::Restarting => "please wait...",
             };
             spans.push(Span::styled(
