@@ -21,6 +21,11 @@ A terminal UI application for managing Laravel development processes in a single
   - [Requirements](#requirements)
   - [Keyboard Controls](#keyboard-controls)
 - [Detected Services](#detected-services)
+- [Laravel Sail](#laravel-sail)
+  - [Automatic Detection](#automatic-detection)
+  - [Supervisor Support](#supervisor-support)
+  - [How Supervisor Detection Works](#how-supervisor-detection-works)
+  - [Sail Configuration](#sail-configuration)
 - [Configuration](#configuration)
   - [Disable Built-in Processes](#disable-built-in-processes)
   - [Override Process Commands](#override-process-commands)
@@ -153,6 +158,64 @@ LaraMux automatically detects and manages:
 | **Reverb** | `laravel/reverb` in composer.json | `php artisan reverb:start` |
 
 > **Note:** If [Laravel Herd](https://herd.laravel.com) is installed on macOS, LaraMux will skip `artisan serve` since Herd handles serving automatically.
+
+## Laravel Sail
+
+LaraMux has full support for [Laravel Sail](https://laravel.com/docs/sail) projects. When Sail is detected, all commands are automatically routed through the Sail CLI to run inside the Docker container.
+
+### Automatic Detection
+
+LaraMux detects Sail by checking for `vendor/bin/sail` in your project. When active:
+
+- `artisan serve` is skipped (Sail's Docker container handles serving)
+- Artisan commands run via `./vendor/bin/sail artisan <command>`
+- PHP vendor tools run via `./vendor/bin/sail php ./vendor/bin/<tool>`
+- JS scripts run via `./vendor/bin/sail <package-manager> run <script>`
+- Sail takes precedence over Laravel Herd (project-specific vs system-level)
+
+### Supervisor Support
+
+Many Sail projects use [supervisord](http://supervisord.org/) to manage long-running services like Horizon, Reverb, queue workers, and Vite inside the container. LaraMux automatically detects these supervised services and adapts its behavior:
+
+- **No duplicate processes** - Instead of starting a second instance, LaraMux tails the supervisor-managed log output
+- **Supervised status indicator** - Supervised processes show a blue `◆` indicator and `[sup]` label in the sidebar
+- **Contextual controls** - Action hints change to reflect supervised behavior:
+
+| Status | Actions |
+|--------|---------|
+| Running | `[x]detach` `[r]reconnect` |
+| Stopped | `[s]tail logs` |
+
+- **No auto-restart** - Supervisor manages the process lifecycle, so LaraMux won't attempt to restart supervised services
+
+### How Supervisor Detection Works
+
+LaraMux reads the supervisord config at `/etc/supervisor/conf.d/supervisord.conf` inside the Sail container and parses `[program:X]` sections. Program names are matched to LaraMux process types:
+
+| Program name contains | Mapped to |
+|-----------------------|-----------|
+| `horizon` | Horizon |
+| `reverb` | Reverb |
+| `worker` or `queue` | Queue |
+| `vite` | Vite |
+
+**Auto log setup:** If supervised programs log to `/dev/stdout` (the default in many Sail configurations), LaraMux automatically patches the supervisor config inside the container to redirect output to individual log files under `/var/log/supervisor/`. This allows per-program log tailing. The change is non-destructive — it only affects the running container and does not modify your project files. A marker file prevents re-running on subsequent LaraMux starts within the same container session.
+
+### Sail Configuration
+
+You can force-enable or force-disable Sail mode in `.laramux.json`:
+
+```json
+{
+  "sail": true
+}
+```
+
+| Value | Behavior |
+|-------|----------|
+| `true` | Force Sail mode on (even without `vendor/bin/sail`) |
+| `false` | Force Sail mode off (ignore Sail even if present) |
+| *omitted* | Auto-detect based on `vendor/bin/sail` (default) |
 
 ## Configuration
 
