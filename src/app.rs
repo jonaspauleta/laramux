@@ -634,6 +634,13 @@ pub enum ConfigSection {
     Disabled,
     Overrides,
     Custom,
+    Sail,
+    Logs,
+    QualityDisabledTools,
+    QualityCustomTools,
+    QualityDefaultArgs,
+    ArtisanFavorites,
+    MakeFavorites,
 }
 
 impl ConfigSection {
@@ -642,6 +649,13 @@ impl ConfigSection {
             ConfigSection::Disabled,
             ConfigSection::Overrides,
             ConfigSection::Custom,
+            ConfigSection::Sail,
+            ConfigSection::Logs,
+            ConfigSection::QualityDisabledTools,
+            ConfigSection::QualityCustomTools,
+            ConfigSection::QualityDefaultArgs,
+            ConfigSection::ArtisanFavorites,
+            ConfigSection::MakeFavorites,
         ]
     }
 
@@ -650,6 +664,13 @@ impl ConfigSection {
             ConfigSection::Disabled => "Disabled",
             ConfigSection::Overrides => "Overrides",
             ConfigSection::Custom => "Custom",
+            ConfigSection::Sail => "Sail",
+            ConfigSection::Logs => "Logs",
+            ConfigSection::QualityDisabledTools => "Disabled Tools",
+            ConfigSection::QualityCustomTools => "Custom Tools",
+            ConfigSection::QualityDefaultArgs => "Default Args",
+            ConfigSection::ArtisanFavorites => "Artisan Favs",
+            ConfigSection::MakeFavorites => "Make Favs",
         }
     }
 
@@ -658,6 +679,13 @@ impl ConfigSection {
             ConfigSection::Disabled => 0,
             ConfigSection::Overrides => 1,
             ConfigSection::Custom => 2,
+            ConfigSection::Sail => 3,
+            ConfigSection::Logs => 4,
+            ConfigSection::QualityDisabledTools => 5,
+            ConfigSection::QualityCustomTools => 6,
+            ConfigSection::QualityDefaultArgs => 7,
+            ConfigSection::ArtisanFavorites => 8,
+            ConfigSection::MakeFavorites => 9,
         }
     }
 
@@ -666,6 +694,13 @@ impl ConfigSection {
             0 => ConfigSection::Disabled,
             1 => ConfigSection::Overrides,
             2 => ConfigSection::Custom,
+            3 => ConfigSection::Sail,
+            4 => ConfigSection::Logs,
+            5 => ConfigSection::QualityDisabledTools,
+            6 => ConfigSection::QualityCustomTools,
+            7 => ConfigSection::QualityDefaultArgs,
+            8 => ConfigSection::ArtisanFavorites,
+            9 => ConfigSection::MakeFavorites,
             _ => ConfigSection::Disabled,
         }
     }
@@ -695,33 +730,6 @@ pub enum ConfigDetailView {
     #[default]
     ItemList, // Navigating the list of items
     ItemFields, // Navigating fields within a selected item
-}
-
-/// Sub-section within Quality section
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum QualitySubSection {
-    #[default]
-    DisabledTools,
-    CustomTools,
-    DefaultArgs,
-}
-
-impl QualitySubSection {
-    pub fn name(&self) -> &'static str {
-        match self {
-            QualitySubSection::DisabledTools => "Disabled Tools",
-            QualitySubSection::CustomTools => "Custom Tools",
-            QualitySubSection::DefaultArgs => "Default Args",
-        }
-    }
-
-    pub fn next(&self) -> Self {
-        match self {
-            QualitySubSection::DisabledTools => QualitySubSection::CustomTools,
-            QualitySubSection::CustomTools => QualitySubSection::DefaultArgs,
-            QualitySubSection::DefaultArgs => QualitySubSection::DisabledTools,
-        }
-    }
 }
 
 /// State for the Config tab

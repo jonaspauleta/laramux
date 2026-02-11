@@ -1426,19 +1426,26 @@ fn handle_config_keys(app: &mut App, key: &crossterm::event::KeyEvent, working_d
 
     // Handle enum selection mode
     if app.config_tab.edit_mode == ConfigEditMode::SelectOption {
+        // Compute the max index based on section
+        let max_enum = match app.config_tab.section {
+            ConfigSection::Sail => 2,               // 3 sail options
+            ConfigSection::Logs => 8,               // 9 log level options
+            ConfigSection::QualityCustomTools => 1, // 2 category options
+            _ => 2,                                 // 3 restart policy options (default)
+        };
+
         match key.code {
             KeyCode::Esc => {
                 app.config_tab.edit_mode = ConfigEditMode::Browse;
                 app.config_tab.enum_selection = 0;
             }
-            KeyCode::Left | KeyCode::Char('h') => {
+            KeyCode::Up | KeyCode::Char('k') => {
                 if app.config_tab.enum_selection > 0 {
                     app.config_tab.enum_selection -= 1;
                 }
             }
-            KeyCode::Right | KeyCode::Char('l') => {
-                if app.config_tab.enum_selection < 2 {
-                    // 3 restart policy options (0, 1, 2)
+            KeyCode::Down | KeyCode::Char('j') => {
+                if app.config_tab.enum_selection < max_enum {
                     app.config_tab.enum_selection += 1;
                 }
             }
@@ -1520,11 +1527,13 @@ fn handle_config_keys(app: &mut App, key: &crossterm::event::KeyEvent, working_d
             } else if !in_field_view {
                 // Enter field view for sections that support it
                 match app.config_tab.section {
-                    ConfigSection::Overrides | ConfigSection::Custom => {
+                    ConfigSection::Custom
+                    | ConfigSection::QualityCustomTools
+                    | ConfigSection::QualityDefaultArgs => {
                         app.config_tab.detail_view = ConfigDetailView::ItemFields;
                         app.config_tab.edit_field = 0;
                     }
-                    ConfigSection::Disabled => {}
+                    _ => {}
                 }
             }
         }
@@ -1617,9 +1626,19 @@ fn handle_config_keys(app: &mut App, key: &crossterm::event::KeyEvent, working_d
         // Delete item
         KeyCode::Char('d') => {
             if app.config_tab.focus == ConfigFocus::Details && !in_field_view {
-                let count = get_config_item_count(app);
-                if count > 0 && app.config_tab.selected_item < count {
-                    app.config_tab.confirm_delete = Some(app.config_tab.selected_item);
+                // Guard: sections with fixed items can't delete
+                let can_delete = match app.config_tab.section {
+                    ConfigSection::Disabled | ConfigSection::Overrides | ConfigSection::Sail => {
+                        false
+                    }
+                    ConfigSection::Logs => app.config_tab.selected_item >= 2,
+                    _ => true,
+                };
+                if can_delete {
+                    let count = get_config_item_count(app);
+                    if count > 0 && app.config_tab.selected_item < count {
+                        app.config_tab.confirm_delete = Some(app.config_tab.selected_item);
+                    }
                 }
             }
         }
@@ -1678,8 +1697,11 @@ fn get_field_count(app: &App) -> usize {
     use app::ConfigSection;
 
     match app.config_tab.section {
-        ConfigSection::Overrides => 4, // command, args, working_dir, restart
-        ConfigSection::Custom => 7,    // name, display, command, args, hotkey, working_dir, restart
+        ConfigSection::Overrides => 4,
+        ConfigSection::Custom => 7,
+        ConfigSection::Logs => 2,
+        ConfigSection::QualityCustomTools => 5,
+        ConfigSection::QualityDefaultArgs => 2,
         _ => 0,
     }
 }
@@ -1696,57 +1718,44 @@ fn start_field_edit(app: &mut App) {
         None => return,
     };
 
-    // Check if this is an enum field (restart_policy)
+    // Check if this is an enum field
     let is_enum_field = match app.config_tab.section {
-        ConfigSection::Overrides => field == 3, // restart_policy is field 3
-        ConfigSection::Custom => field == 6,    // restart_policy is field 6
+        ConfigSection::Overrides => field == 3,
+        ConfigSection::Custom => field == 6,
+        ConfigSection::QualityCustomTools => field == 4,
         _ => false,
     };
 
     if is_enum_field {
-        // Enter enum selection mode
-        // Get current restart_policy value to set initial selection
-        let current_policy = match app.config_tab.section {
-            ConfigSection::Overrides => {
-                let processes = ["serve", "vite", "queue", "horizon", "reverb"];
-                processes
+        match app.config_tab.section {
+            ConfigSection::QualityCustomTools => {
+                let current = draft
+                    .quality
+                    .custom_tools
                     .get(selected)
-                    .and_then(|name| draft.overrides.get(*name).map(|ovr| ovr.restart_policy))
+                    .map(|t| t.category.as_str())
+                    .unwrap_or("quality");
+                app.config_tab.enum_selection = if current == "testing" { 1 } else { 0 };
             }
-            ConfigSection::Custom => draft.custom.get(selected).map(|cp| cp.restart_policy),
-            _ => None,
-        };
-
-        // Map policy to index (never=0, on_failure=1, always=2)
-        app.config_tab.enum_selection = match current_policy {
-            Some(config::RestartPolicy::Never) => 0,
-            Some(config::RestartPolicy::OnFailure) => 1,
-            Some(config::RestartPolicy::Always) => 2,
-            None => 0,
-        };
+            ConfigSection::Custom => {
+                let current_policy = draft.custom.get(selected).map(|cp| cp.restart_policy);
+                app.config_tab.enum_selection = match current_policy {
+                    Some(config::RestartPolicy::Never) => 0,
+                    Some(config::RestartPolicy::OnFailure) => 1,
+                    Some(config::RestartPolicy::Always) => 2,
+                    None => 0,
+                };
+            }
+            _ => {
+                app.config_tab.enum_selection = 0;
+            }
+        }
         app.config_tab.edit_mode = ConfigEditMode::SelectOption;
         return;
     }
 
     // Pre-fill the edit buffer with the current value for text fields
     let current_value = match app.config_tab.section {
-        ConfigSection::Overrides => {
-            let processes = ["serve", "vite", "queue", "horizon", "reverb"];
-            if let Some(name) = processes.get(selected) {
-                if let Some(ovr) = draft.overrides.get(*name) {
-                    match field {
-                        0 => ovr.command.clone(),
-                        1 => ovr.args.clone(),
-                        2 => ovr.working_dir.clone(),
-                        _ => String::new(),
-                    }
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            }
-        }
         ConfigSection::Custom => {
             if let Some(cp) = draft.custom.get(selected) {
                 match field {
@@ -1756,6 +1765,30 @@ fn start_field_edit(app: &mut App) {
                     3 => cp.args.clone(),
                     4 => cp.hotkey.clone(),
                     5 => cp.working_dir.clone(),
+                    _ => String::new(),
+                }
+            } else {
+                String::new()
+            }
+        }
+        ConfigSection::QualityCustomTools => {
+            if let Some(tool) = draft.quality.custom_tools.get(selected) {
+                match field {
+                    0 => tool.name.clone(),
+                    1 => tool.display_name.clone(),
+                    2 => tool.command.clone(),
+                    3 => tool.args.clone(),
+                    _ => String::new(),
+                }
+            } else {
+                String::new()
+            }
+        }
+        ConfigSection::QualityDefaultArgs => {
+            if let Some((tool_name, tool_args)) = draft.quality.default_args.get(selected) {
+                match field {
+                    0 => tool_name.clone(),
+                    1 => tool_args.clone(),
                     _ => String::new(),
                 }
             } else {
@@ -1780,30 +1813,77 @@ fn get_config_item_count(app: &App) -> usize {
 
     match app.config_tab.section {
         ConfigSection::Disabled => 5,
-        ConfigSection::Overrides => 5,
+        ConfigSection::Overrides => 25, // 5 processes x (1 header + 4 fields)
         ConfigSection::Custom => draft.custom.len(),
+        ConfigSection::Sail => 1,
+        ConfigSection::Logs => 2 + draft.logs.files.len(),
+        ConfigSection::QualityDisabledTools => draft.quality.disabled_tools.len(),
+        ConfigSection::QualityCustomTools => draft.quality.custom_tools.len(),
+        ConfigSection::QualityDefaultArgs => draft.quality.default_args.len(),
+        ConfigSection::ArtisanFavorites => draft.artisan_favorites.len(),
+        ConfigSection::MakeFavorites => draft.make_favorites.len(),
     }
 }
 
 /// Handle Enter key in config details (item list mode)
 fn handle_config_enter(app: &mut App) {
-    use app::{ConfigDetailView, ConfigSection};
+    use app::{ConfigDetailView, ConfigEditMode, ConfigSection};
 
     match app.config_tab.section {
         ConfigSection::Disabled => {
-            // Toggle the selected item
             if let Some(ref mut draft) = app.config_tab.config_draft {
                 draft.toggle_item(app.config_tab.selected_item);
                 app.config_tab.has_changes = true;
             }
         }
         ConfigSection::Overrides => {
-            // Enter field view mode to navigate fields
-            app.config_tab.detail_view = ConfigDetailView::ItemFields;
-            app.config_tab.edit_field = 0;
+            // Flat navigation: compute process and field from selected_item
+            let row = app.config_tab.selected_item % 5;
+            if row == 0 {
+                return; // Header row, do nothing
+            }
+            let process_idx = app.config_tab.selected_item / 5;
+            let field_idx = row - 1; // 0=command, 1=args, 2=working_dir, 3=restart
+
+            if field_idx == 3 {
+                // Restart policy - enum select
+                let draft = match &app.config_tab.config_draft {
+                    Some(d) => d,
+                    None => return,
+                };
+                let processes = ["serve", "vite", "queue", "horizon", "reverb"];
+                let current_policy = processes
+                    .get(process_idx)
+                    .and_then(|name| draft.overrides.get(*name).map(|ovr| ovr.restart_policy));
+                app.config_tab.enum_selection = match current_policy {
+                    Some(config::RestartPolicy::Never) => 0,
+                    Some(config::RestartPolicy::OnFailure) => 1,
+                    Some(config::RestartPolicy::Always) => 2,
+                    None => 0,
+                };
+                app.config_tab.edit_mode = ConfigEditMode::SelectOption;
+            } else {
+                // Text edit
+                let draft = match &app.config_tab.config_draft {
+                    Some(d) => d,
+                    None => return,
+                };
+                let processes = ["serve", "vite", "queue", "horizon", "reverb"];
+                let current_value = processes
+                    .get(process_idx)
+                    .and_then(|name| draft.overrides.get(*name))
+                    .map(|ovr| match field_idx {
+                        0 => ovr.command.clone(),
+                        1 => ovr.args.clone(),
+                        2 => ovr.working_dir.clone(),
+                        _ => String::new(),
+                    })
+                    .unwrap_or_default();
+                app.config_tab.edit_buffer = current_value;
+                app.config_tab.edit_mode = ConfigEditMode::EditText;
+            }
         }
         ConfigSection::Custom => {
-            // Enter field view mode to navigate fields
             if app
                 .config_tab
                 .config_draft
@@ -1815,12 +1895,132 @@ fn handle_config_enter(app: &mut App) {
                 app.config_tab.edit_field = 0;
             }
         }
+        ConfigSection::Sail => {
+            let draft = match &app.config_tab.config_draft {
+                Some(d) => d,
+                None => return,
+            };
+            app.config_tab.enum_selection = match draft.sail {
+                None => 0,
+                Some(true) => 1,
+                Some(false) => 2,
+            };
+            app.config_tab.edit_mode = ConfigEditMode::SelectOption;
+        }
+        ConfigSection::Logs => {
+            let item = app.config_tab.selected_item;
+            if item == 0 {
+                let current = app
+                    .config_tab
+                    .config_draft
+                    .as_ref()
+                    .map(|d| d.logs.max_lines.clone())
+                    .unwrap_or_default();
+                app.config_tab.edit_buffer = current;
+                app.config_tab.edit_mode = ConfigEditMode::EditText;
+            } else if item == 1 {
+                let current = app
+                    .config_tab
+                    .config_draft
+                    .as_ref()
+                    .map(|d| d.logs.default_filter.clone())
+                    .unwrap_or_default();
+                let log_levels = [
+                    "(none)",
+                    "debug",
+                    "info",
+                    "notice",
+                    "warning",
+                    "error",
+                    "critical",
+                    "alert",
+                    "emergency",
+                ];
+                app.config_tab.enum_selection = log_levels
+                    .iter()
+                    .position(|l| {
+                        if current.is_empty() {
+                            *l == "(none)"
+                        } else {
+                            *l == current.as_str()
+                        }
+                    })
+                    .unwrap_or(0);
+                app.config_tab.edit_mode = ConfigEditMode::SelectOption;
+            } else {
+                let file_idx = item - 2;
+                let current = app
+                    .config_tab
+                    .config_draft
+                    .as_ref()
+                    .and_then(|d| d.logs.files.get(file_idx).cloned())
+                    .unwrap_or_default();
+                app.config_tab.edit_buffer = current;
+                app.config_tab.edit_mode = ConfigEditMode::EditText;
+            }
+        }
+        ConfigSection::QualityDisabledTools => {
+            let current = app
+                .config_tab
+                .config_draft
+                .as_ref()
+                .and_then(|d| {
+                    d.quality
+                        .disabled_tools
+                        .get(app.config_tab.selected_item)
+                        .cloned()
+                })
+                .unwrap_or_default();
+            app.config_tab.edit_buffer = current;
+            app.config_tab.edit_mode = ConfigEditMode::EditText;
+        }
+        ConfigSection::QualityCustomTools => {
+            if app
+                .config_tab
+                .config_draft
+                .as_ref()
+                .map(|d| !d.quality.custom_tools.is_empty())
+                .unwrap_or(false)
+            {
+                app.config_tab.detail_view = ConfigDetailView::ItemFields;
+                app.config_tab.edit_field = 0;
+            }
+        }
+        ConfigSection::QualityDefaultArgs => {
+            if app
+                .config_tab
+                .config_draft
+                .as_ref()
+                .map(|d| !d.quality.default_args.is_empty())
+                .unwrap_or(false)
+            {
+                app.config_tab.detail_view = ConfigDetailView::ItemFields;
+                app.config_tab.edit_field = 0;
+            }
+        }
+        ConfigSection::ArtisanFavorites | ConfigSection::MakeFavorites => {
+            let current = app
+                .config_tab
+                .config_draft
+                .as_ref()
+                .and_then(|d| {
+                    let favs = if app.config_tab.section == ConfigSection::ArtisanFavorites {
+                        &d.artisan_favorites
+                    } else {
+                        &d.make_favorites
+                    };
+                    favs.get(app.config_tab.selected_item).cloned()
+                })
+                .unwrap_or_default();
+            app.config_tab.edit_buffer = current;
+            app.config_tab.edit_mode = ConfigEditMode::EditText;
+        }
     }
 }
 
 /// Handle adding new items in config
 fn handle_config_add(app: &mut App) {
-    use app::{ConfigSection, CustomProcessDraft};
+    use app::{ConfigSection, CustomProcessDraft, CustomToolDraft};
 
     let draft = match app.config_tab.config_draft.as_mut() {
         Some(d) => d,
@@ -1829,50 +2029,141 @@ fn handle_config_add(app: &mut App) {
 
     match app.config_tab.section {
         ConfigSection::Custom => {
-            // Add new custom process
             draft.custom.push(CustomProcessDraft::new());
             app.config_tab.selected_item = draft.custom.len() - 1;
             app.config_tab.has_changes = true;
-            // Enter field view to edit the new process
             app.config_tab.detail_view = app::ConfigDetailView::ItemFields;
             app.config_tab.edit_mode = app::ConfigEditMode::EditText;
             app.config_tab.edit_field = 0;
             app.config_tab.edit_buffer.clear();
         }
-        ConfigSection::Disabled | ConfigSection::Overrides => {
-            // These sections have fixed items, can't add
+        ConfigSection::Logs => {
+            draft.logs.files.push(String::new());
+            app.config_tab.selected_item = 2 + draft.logs.files.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.edit_buffer.clear();
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
         }
+        ConfigSection::QualityDisabledTools => {
+            draft.quality.disabled_tools.push(String::new());
+            app.config_tab.selected_item = draft.quality.disabled_tools.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.edit_buffer.clear();
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
+        }
+        ConfigSection::QualityCustomTools => {
+            draft
+                .quality
+                .custom_tools
+                .push(CustomToolDraft::new_quality());
+            app.config_tab.selected_item = draft.quality.custom_tools.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.detail_view = app::ConfigDetailView::ItemFields;
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
+            app.config_tab.edit_field = 0;
+            app.config_tab.edit_buffer.clear();
+        }
+        ConfigSection::QualityDefaultArgs => {
+            draft
+                .quality
+                .default_args
+                .push((String::new(), String::new()));
+            app.config_tab.selected_item = draft.quality.default_args.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.detail_view = app::ConfigDetailView::ItemFields;
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
+            app.config_tab.edit_field = 0;
+            app.config_tab.edit_buffer.clear();
+        }
+        ConfigSection::ArtisanFavorites => {
+            draft.artisan_favorites.push(String::new());
+            app.config_tab.selected_item = draft.artisan_favorites.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.edit_buffer.clear();
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
+        }
+        ConfigSection::MakeFavorites => {
+            draft.make_favorites.push(String::new());
+            app.config_tab.selected_item = draft.make_favorites.len() - 1;
+            app.config_tab.has_changes = true;
+            app.config_tab.edit_buffer.clear();
+            app.config_tab.edit_mode = app::ConfigEditMode::EditText;
+        }
+        ConfigSection::Disabled | ConfigSection::Overrides | ConfigSection::Sail => {}
     }
 }
 
-/// Apply enum selection to the config (for restart_policy)
+/// Apply enum selection to the config
 fn apply_enum_selection(app: &mut App) {
     use app::ConfigSection;
 
     let selected = app.config_tab.selected_item;
     let enum_idx = app.config_tab.enum_selection;
 
-    let new_policy = match enum_idx {
-        0 => config::RestartPolicy::Never,
-        1 => config::RestartPolicy::OnFailure,
-        2 => config::RestartPolicy::Always,
-        _ => config::RestartPolicy::Never,
-    };
-
     let draft = match app.config_tab.config_draft.as_mut() {
         Some(d) => d,
         None => return,
     };
 
     match app.config_tab.section {
+        ConfigSection::Sail => {
+            draft.sail = match enum_idx {
+                0 => None,
+                1 => Some(true),
+                2 => Some(false),
+                _ => None,
+            };
+        }
+        ConfigSection::Logs => {
+            let log_levels = [
+                "(none)",
+                "debug",
+                "info",
+                "notice",
+                "warning",
+                "error",
+                "critical",
+                "alert",
+                "emergency",
+            ];
+            if let Some(level) = log_levels.get(enum_idx) {
+                draft.logs.default_filter = if *level == "(none)" {
+                    String::new()
+                } else {
+                    level.to_string()
+                };
+            }
+        }
+        ConfigSection::QualityCustomTools => {
+            let categories = ["quality", "testing"];
+            if let Some(cat) = categories.get(enum_idx) {
+                if let Some(tool) = draft.quality.custom_tools.get_mut(selected) {
+                    tool.category = cat.to_string();
+                }
+            }
+        }
         ConfigSection::Overrides => {
+            // Flat layout: compute process index from selected_item
+            let process_idx = selected / 5;
+            let new_policy = match enum_idx {
+                0 => config::RestartPolicy::Never,
+                1 => config::RestartPolicy::OnFailure,
+                2 => config::RestartPolicy::Always,
+                _ => config::RestartPolicy::Never,
+            };
             let processes = ["serve", "vite", "queue", "horizon", "reverb"];
-            if let Some(name) = processes.get(selected) {
+            if let Some(name) = processes.get(process_idx) {
                 let ovr = draft.get_or_create_override(name);
                 ovr.restart_policy = new_policy;
             }
         }
         ConfigSection::Custom => {
+            let new_policy = match enum_idx {
+                0 => config::RestartPolicy::Never,
+                1 => config::RestartPolicy::OnFailure,
+                2 => config::RestartPolicy::Always,
+                _ => config::RestartPolicy::Never,
+            };
             if let Some(cp) = draft.custom.get_mut(selected) {
                 cp.restart_policy = new_policy;
             }
@@ -1896,14 +2187,20 @@ fn apply_config_edit(app: &mut App) {
 
     match app.config_tab.section {
         ConfigSection::Overrides => {
+            // Flat layout: compute process and field from selected_item
+            let row = selected % 5;
+            if row == 0 {
+                return;
+            }
+            let process_idx = selected / 5;
+            let field_idx = row - 1;
             let processes = ["serve", "vite", "queue", "horizon", "reverb"];
-            if let Some(name) = processes.get(selected) {
+            if let Some(name) = processes.get(process_idx) {
                 let ovr = draft.get_or_create_override(name);
-                match field {
+                match field_idx {
                     0 => ovr.command = value,
                     1 => ovr.args = value,
                     2 => ovr.working_dir = value,
-                    // field 3 (restart_policy) is handled by apply_enum_selection
                     _ => {}
                 }
             }
@@ -1923,14 +2220,56 @@ fn apply_config_edit(app: &mut App) {
                             .unwrap_or_default()
                     }
                     5 => cp.working_dir = value,
-                    // field 6 (restart_policy) is handled by apply_enum_selection
                     _ => {}
                 }
             }
         }
-        ConfigSection::Disabled => {
-            // Disabled section uses toggle, not text edit
+        ConfigSection::Logs => {
+            if selected == 0 {
+                draft.logs.max_lines = value;
+            } else if selected >= 2 {
+                let file_idx = selected - 2;
+                if let Some(file) = draft.logs.files.get_mut(file_idx) {
+                    *file = value;
+                }
+            }
         }
+        ConfigSection::QualityDisabledTools => {
+            if let Some(tool) = draft.quality.disabled_tools.get_mut(selected) {
+                *tool = value;
+            }
+        }
+        ConfigSection::QualityCustomTools => {
+            if let Some(tool) = draft.quality.custom_tools.get_mut(selected) {
+                match field {
+                    0 => tool.name = value,
+                    1 => tool.display_name = value,
+                    2 => tool.command = value,
+                    3 => tool.args = value,
+                    _ => {}
+                }
+            }
+        }
+        ConfigSection::QualityDefaultArgs => {
+            if let Some((tool_name, tool_args)) = draft.quality.default_args.get_mut(selected) {
+                match field {
+                    0 => *tool_name = value,
+                    1 => *tool_args = value,
+                    _ => {}
+                }
+            }
+        }
+        ConfigSection::ArtisanFavorites => {
+            if let Some(fav) = draft.artisan_favorites.get_mut(selected) {
+                *fav = value;
+            }
+        }
+        ConfigSection::MakeFavorites => {
+            if let Some(fav) = draft.make_favorites.get_mut(selected) {
+                *fav = value;
+            }
+        }
+        ConfigSection::Disabled | ConfigSection::Sail => {}
     }
 }
 
@@ -1954,9 +2293,74 @@ fn perform_config_delete(app: &mut App, idx: usize) {
                 }
             }
         }
-        ConfigSection::Disabled | ConfigSection::Overrides => {
-            // These sections have fixed items, can't delete
+        ConfigSection::Logs => {
+            if idx >= 2 {
+                let file_idx = idx - 2;
+                if file_idx < draft.logs.files.len() {
+                    draft.logs.files.remove(file_idx);
+                    if app.config_tab.selected_item > 0
+                        && app.config_tab.selected_item >= 2 + draft.logs.files.len()
+                    {
+                        app.config_tab.selected_item =
+                            (2 + draft.logs.files.len()).saturating_sub(1);
+                    }
+                }
+            }
         }
+        ConfigSection::QualityDisabledTools => {
+            if idx < draft.quality.disabled_tools.len() {
+                draft.quality.disabled_tools.remove(idx);
+                if app.config_tab.selected_item > 0
+                    && app.config_tab.selected_item >= draft.quality.disabled_tools.len()
+                {
+                    app.config_tab.selected_item =
+                        draft.quality.disabled_tools.len().saturating_sub(1);
+                }
+            }
+        }
+        ConfigSection::QualityCustomTools => {
+            if idx < draft.quality.custom_tools.len() {
+                draft.quality.custom_tools.remove(idx);
+                if app.config_tab.selected_item > 0
+                    && app.config_tab.selected_item >= draft.quality.custom_tools.len()
+                {
+                    app.config_tab.selected_item =
+                        draft.quality.custom_tools.len().saturating_sub(1);
+                }
+            }
+        }
+        ConfigSection::QualityDefaultArgs => {
+            if idx < draft.quality.default_args.len() {
+                draft.quality.default_args.remove(idx);
+                if app.config_tab.selected_item > 0
+                    && app.config_tab.selected_item >= draft.quality.default_args.len()
+                {
+                    app.config_tab.selected_item =
+                        draft.quality.default_args.len().saturating_sub(1);
+                }
+            }
+        }
+        ConfigSection::ArtisanFavorites => {
+            if idx < draft.artisan_favorites.len() {
+                draft.artisan_favorites.remove(idx);
+                if app.config_tab.selected_item > 0
+                    && app.config_tab.selected_item >= draft.artisan_favorites.len()
+                {
+                    app.config_tab.selected_item = draft.artisan_favorites.len().saturating_sub(1);
+                }
+            }
+        }
+        ConfigSection::MakeFavorites => {
+            if idx < draft.make_favorites.len() {
+                draft.make_favorites.remove(idx);
+                if app.config_tab.selected_item > 0
+                    && app.config_tab.selected_item >= draft.make_favorites.len()
+                {
+                    app.config_tab.selected_item = draft.make_favorites.len().saturating_sub(1);
+                }
+            }
+        }
+        ConfigSection::Disabled | ConfigSection::Overrides | ConfigSection::Sail => {}
     }
 }
 

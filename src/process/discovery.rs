@@ -86,9 +86,25 @@ fn is_herd_installed() -> bool {
     }
 }
 
-/// Check if Laravel Sail is present in the project
+/// Check if Laravel Sail is present and its Docker container is running
 fn is_sail_project(working_dir: &Path) -> bool {
-    working_dir.join("vendor/bin/sail").exists()
+    if !working_dir.join("vendor/bin/sail").exists() {
+        return false;
+    }
+    // Verify the Sail container is actually running
+    let output = Command::new("docker")
+        .args(["compose", "ps", "-q", "laravel.test"])
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            !o.stdout.is_empty() && !o.stdout.iter().all(|b| b.is_ascii_whitespace())
+        }
+        _ => false,
+    }
 }
 
 /// Info about a supervised program parsed from the supervisor config
