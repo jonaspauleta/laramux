@@ -94,6 +94,10 @@ impl ProcessManager {
             .env("CLICOLOR_FORCE", "1")
             .env("COLORTERM", "truecolor");
 
+        // Create a process group so we can kill the entire tree on exit
+        #[cfg(unix)]
+        cmd.process_group(0);
+
         // Apply configured environment variables
         for (key, value) in &config.env {
             cmd.env(key, value);
@@ -232,14 +236,17 @@ impl ProcessManager {
     /// Kill a process gracefully (SIGTERM, wait, then SIGKILL)
     pub async fn kill(&mut self, id: &ProcessId) -> Result<()> {
         if let Some(mut child) = self.children.remove(id) {
-            // Try graceful shutdown first
+            // Capture PID before any wait calls
+            let pid = child.id();
+
+            // Try graceful shutdown first — signal the entire process group
             #[cfg(unix)]
             {
                 use nix::sys::signal::{kill, Signal};
                 use nix::unistd::Pid;
 
-                if let Some(pid) = child.id() {
-                    let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+                if let Some(pid) = pid {
+                    let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGTERM);
                 }
             }
 
@@ -262,7 +269,16 @@ impl ProcessManager {
                         .await;
                 }
                 _ => {
-                    // Force kill if timeout
+                    // Force kill the entire process group if timeout
+                    #[cfg(unix)]
+                    {
+                        use nix::sys::signal::{kill, Signal};
+                        use nix::unistd::Pid;
+
+                        if let Some(pid) = pid {
+                            let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
+                        }
+                    }
                     let _ = child.kill().await;
                     let _ = child.wait().await;
                     let _ = self
@@ -392,14 +408,17 @@ impl ProcessManager {
 
 /// Helper to kill a single child process with timeout
 async fn kill_child(mut child: Child, id: &ProcessId, event_tx: &mpsc::Sender<Event>) {
-    // Try graceful shutdown first
+    // Capture PID before any wait calls
+    let pid = child.id();
+
+    // Try graceful shutdown first — signal the entire process group
     #[cfg(unix)]
     {
         use nix::sys::signal::{kill, Signal};
         use nix::unistd::Pid;
 
-        if let Some(pid) = child.id() {
-            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        if let Some(pid) = pid {
+            let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGTERM);
         }
     }
 
@@ -421,7 +440,16 @@ async fn kill_child(mut child: Child, id: &ProcessId, event_tx: &mpsc::Sender<Ev
                 .await;
         }
         _ => {
-            // Force kill if timeout
+            // Force kill the entire process group if timeout
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{kill, Signal};
+                use nix::unistd::Pid;
+
+                if let Some(pid) = pid {
+                    let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
+                }
+            }
             let _ = child.kill().await;
             let _ = child.wait().await;
             let _ = event_tx

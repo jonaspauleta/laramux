@@ -1303,16 +1303,21 @@ async fn spawn_command(
 
     tokio::spawn(async move {
         // Build and spawn command
-        let mut child = match Command::new(&cmd)
+        let mut spawn_cmd = Command::new(&cmd);
+        spawn_cmd
             .args(&full_args)
             .current_dir(&working_dir)
             .env("FORCE_COLOR", "1")
             .env("CLICOLOR_FORCE", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+
+        // Create a process group so we can kill the entire tree on cancellation
+        #[cfg(unix)]
+        spawn_cmd.process_group(0);
+
+        let mut child = match spawn_cmd.spawn() {
             Ok(child) => child,
             Err(e) => {
                 let _ = tx
@@ -1391,14 +1396,35 @@ async fn spawn_command(
             });
         }
 
+        // Capture PID before the select for process group killing
+        let child_pid = child.id();
+
         // Wait for process to exit
         tokio::select! {
             _ = cancel.cancelled() => {
+                #[cfg(unix)]
+                {
+                    use nix::sys::signal::{kill, Signal};
+                    use nix::unistd::Pid;
+                    if let Some(pid) = child_pid {
+                        let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
+                    }
+                }
                 let _ = child.kill().await;
+                let _ = child.wait().await;
                 let _ = tx.send(Event::CommandExited { exit_code: None }).await;
             }
             _ = main_cancel.cancelled() => {
+                #[cfg(unix)]
+                {
+                    use nix::sys::signal::{kill, Signal};
+                    use nix::unistd::Pid;
+                    if let Some(pid) = child_pid {
+                        let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
+                    }
+                }
                 let _ = child.kill().await;
+                let _ = child.wait().await;
             }
             result = child.wait() => {
                 match result {
