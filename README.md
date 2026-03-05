@@ -12,11 +12,14 @@ A terminal UI application for managing Laravel development processes in a single
 
 - [Features](#features)
 - [Installation](#installation)
+  - [Quick Install](#quick-install-linux--macos)
+  - [Cargo](#cargo-cratesio)
   - [Homebrew](#homebrew-macos--linux)
   - [apt (Debian/Ubuntu)](#apt-debianubuntu)
   - [dnf (Fedora/RHEL)](#dnf-fedorarhel)
   - [Download Binary](#download-binary)
   - [Build from Source](#build-from-source)
+- [Updating](#updating)
 - [Usage](#usage)
   - [Requirements](#requirements)
   - [Keyboard Controls](#keyboard-controls)
@@ -51,6 +54,18 @@ A terminal UI application for managing Laravel development processes in a single
 - **Graceful Shutdown** - Properly terminates all child processes on exit
 
 ## Installation
+
+### Quick Install (Linux & macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jonaspauleta/laramux/main/install.sh | sh
+```
+
+### Cargo (crates.io)
+
+```bash
+cargo install laramux
+```
 
 ### Homebrew (macOS & Linux)
 
@@ -110,6 +125,14 @@ Requires [Rust](https://rustup.rs/) 1.70 or later.
 git clone https://github.com/jonaspauleta/laramux.git
 cd laramux
 cargo install --path .
+```
+
+## Updating
+
+Update to the latest version with:
+
+```bash
+laramux update
 ```
 
 ## Usage

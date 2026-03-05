@@ -1,6 +1,6 @@
 [package]
 name = "laramux"
-version = "1.2.1"
+version = "1.3.0"
 edition = "2021"
 description = "A TUI application for managing Laravel development processes"
 authors = ["jonaspauleta"]
@@ -8,6 +8,8 @@ license = "MIT"
 repository = "https://github.com/jonaspauleta/laramux"
 keywords = ["laravel", "tui", "terminal", "development", "php"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+exclude = [".github/", "public/", "install.sh"]
 
 [dependencies]
 ratatui = "0.28"

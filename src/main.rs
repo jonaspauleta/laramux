@@ -6,6 +6,7 @@ mod log;
 mod process;
 mod tui;
 mod ui;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -36,6 +37,25 @@ const TICK_RATE: Duration = Duration::from_millis(100);
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "update" => return update::run_update().await,
+            "--version" | "-V" => {
+                println!("laramux {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "--help" | "-h" => {
+                update::print_help();
+                return Ok(());
+            }
+            arg => {
+                eprintln!("Unknown argument: {arg}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Install panic hook for terminal restoration
     tui::install_panic_hook();
 
