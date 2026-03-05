@@ -22,10 +22,15 @@ pub async fn run_update() -> Result<()> {
     println!("Current version: {current_version}");
     println!("Checking for updates...");
 
+    // Use redirect URL instead of API to avoid rate limits
     let output = Command::new("curl")
         .args([
-            "-fsSL",
-            &format!("https://api.github.com/repos/{REPO}/releases/latest"),
+            "-sIL",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{url_effective}",
+            &format!("https://github.com/{REPO}/releases/latest"),
         ])
         .output()?;
 
@@ -35,10 +40,11 @@ pub async fn run_update() -> Result<()> {
         std::process::exit(1);
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
-    let tag = json["tag_name"].as_str().ok_or_else(|| {
-        LaraMuxError::Process("Could not parse release tag from GitHub API response".into())
-    })?;
+    let url = String::from_utf8_lossy(&output.stdout);
+    let tag = url
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| LaraMuxError::Process("Could not parse release tag from URL".into()))?;
 
     let latest_version = tag.strip_prefix('v').unwrap_or(tag);
 
